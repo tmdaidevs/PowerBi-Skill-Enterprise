@@ -342,11 +342,14 @@ class StyleTransformationEngine:
                     def _color_expr(hex_val: str) -> dict:
                         return {"solid": {"color": {"expr": {"Literal": {"Value": f"'{hex_val}'"}}}}}
 
-                    # Corner radius via border (subtle, no visible border line)
+                    # Corner radius via border — show=true with transparent color
                     if style_guide.layout.corner_radius is not None and style_guide.layout.corner_radius > 0:
-                        border_props = {}
-                        border_props["show"] = _lit("false")
-                        border_props["radius"] = _lit(f"{style_guide.layout.corner_radius}D")
+                        border_props = {
+                            "show": _lit("true"),
+                            "color": _color_expr("#FFFFFF"),
+                            "width": _lit("0D"),
+                            "radius": _lit(f"{style_guide.layout.corner_radius}D"),
+                        }
                         vco["border"] = [{"properties": border_props}]
                         plan.changes.append(TransformationChange(
                             target=f"visual:{visual.id}", path="visualContainerObjects.border.radius",
