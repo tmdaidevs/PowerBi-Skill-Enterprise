@@ -70,6 +70,14 @@ class FabricApiClient:
         url = f"{settings.powerbi_api_base_url}/groups/{workspace_id}/reports/{report_id}"
         return self._request("GET", url).json()
 
+    def clone_report(self, workspace_id: str, report_id: str, clone_name: str, target_workspace_id: str | None = None) -> dict[str, Any]:
+        """Clone a report within the same or different workspace."""
+        url = f"{settings.powerbi_api_base_url}/groups/{workspace_id}/reports/{report_id}/Clone"
+        body: dict[str, Any] = {"name": clone_name}
+        if target_workspace_id:
+            body["targetWorkspaceId"] = target_workspace_id
+        return self._request("POST", url, json_payload=body).json()
+
     def get_report_definition(self, workspace_id: str, report_id: str) -> dict[str, Any]:
         url = f"{settings.fabric_api_base_url}/workspaces/{workspace_id}/reports/{report_id}/getDefinition"
         response = self._request("POST", url)

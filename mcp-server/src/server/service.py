@@ -1692,6 +1692,14 @@ class ReportModernizationService:
             "actions": [],
         }
 
+        # Action 0: Clone report (original is NEVER modified)
+        plan["actions"].insert(0, {
+            "id": "clone_report",
+            "phase": "safety",
+            "description": "Clone report — all changes applied to the copy, original is never modified",
+            "priority": "critical",
+        })
+
         # Action 1: Backup
         plan["actions"].append({
             "id": "backup",
@@ -1976,8 +1984,34 @@ class ReportModernizationService:
 
         # Execute the plan
         executed: list[dict[str, Any]] = []
+        original_report_id = report_id
 
-        # 1. Backup
+        # 0. Clone report — all changes go to the clone, original untouched
+        try:
+            report_metadata = self.api_client.get_report_metadata(workspace_id, report_id)
+            original_name = report_metadata.get("name", "report")
+            clone_name = f"{original_name}_modernized"
+            clone_result = self.api_client.clone_report(workspace_id, report_id, clone_name)
+            report_id = clone_result["id"]  # Switch all subsequent operations to the clone
+            executed.append({
+                "action": "clone_report",
+                "success": True,
+                "cloneId": report_id,
+                "cloneName": clone_name,
+                "originalId": original_report_id,
+                "webUrl": clone_result.get("webUrl", ""),
+            })
+        except Exception as exc:
+            executed.append({"action": "clone_report", "success": False, "error": str(exc)})
+            # Cannot proceed without a clone — return immediately
+            return ToolResponse(
+                success=False,
+                summary="Failed to clone report — original was NOT modified",
+                data={"executed": executed},
+                blockers=[WarningItem(severity=Severity.BLOCKER, code="clone_failed", message=str(exc))],
+            )
+
+        # 1. Backup (of the clone)
         try:
             backup_resp = self.backup_report_definition(workspace_id, report_id)
             executed.append({"action": "backup", "success": backup_resp.success, "path": backup_resp.data.get("backupPath")})
@@ -2068,22 +2102,33 @@ class ReportModernizationService:
 
         # 6. Log modernization
         self._audit_log("full_modernization", workspace_id, report_id, {
+            "originalReportId": original_report_id,
+            "cloneReportId": report_id,
             "actionsPlanned": plan["totalActions"],
             "actionsExecuted": len(executed),
             "score_before": score_data.get("score", 0),
             "styleGuide": style_guide_info.get("name", "none"),
         })
 
+        has_failures = any(not step.get("success", True) for step in executed)
+
         return ToolResponse(
             success=True,
-            summary=f"Modernization complete: {len(executed)} actions executed",
+            summary=f"Modernization complete: {len(executed)} actions executed on clone '{clone_name}'. Original report was NOT modified.",
             data={
                 "plan": plan,
                 "executed": executed,
-                "note": "Semantic model changes (measures, metadata, synonyms) require the powerbi-modeling-mcp server",
+                "originalReportId": original_report_id,
+                "cloneReportId": report_id,
+                "cloneName": clone_name,
+                "note": "All changes were applied to the cloned report. The original report is untouched.",
             },
+            warnings=[WarningItem(severity=Severity.WARNING, code="partial_failure",
+                                  message="Some steps had errors — review executed actions for details")]
+            if has_failures else [],
             next_actions=[
-                "Run analyze_report_structure to verify improvements",
+                f"View the modernized report clone in Power BI",
+                "Run analyze_report_structure on the clone to verify improvements",
                 "Use powerbi-modeling-mcp to apply suggested measures and metadata",
             ],
         )
