@@ -159,7 +159,7 @@ def reorder_pages(workspace_id: str, report_id: str, page_order: list[str], dry_
     return service.reorder_pages(workspace_id, report_id, page_order, dry_run=dry_run).model_dump(mode="json")
 
 
-def full_modernization(workspace_id: str, report_id: str, confirm: bool = False) -> dict[str, Any]:
+def full_modernization(workspace_id: str, report_id: str, confirm: bool = False, schema: dict[str, Any] | None = None) -> dict[str, Any]:
     return service.full_modernization(workspace_id, report_id, confirm=confirm).model_dump(mode="json")
 
 
