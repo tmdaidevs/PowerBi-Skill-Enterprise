@@ -275,10 +275,35 @@ class ReportModernizationService:
 
         # Apply per-category data colors if the style guide provides a palette
         category_color_changes: list[dict[str, Any]] = []
-        data_colors = style_guide.theme.data_colors
+        data_colors = style_guide.get_data_colors()
         if data_colors:
             dataset_id = self._resolve_dataset_id(workspace_id, report_id)
             self._apply_category_colors(transformed, workspace_id, dataset_id, data_colors, category_color_changes)
+
+        # Apply explicit categoryColors (dimension-value → color map)
+        cat_colors = style_guide.get_category_colors()
+        if cat_colors and not dry_run:
+            for page in transformed.pages:
+                for visual in page.visuals:
+                    cat = self.transformer.extract_category_field(visual)
+                    if not cat:
+                        continue
+                    # Build dataPoint entries for known category values
+                    for part in transformed.parts:
+                        if not part.path.endswith("/visual.json") or not isinstance(part.payload, dict):
+                            continue
+                        if part.payload.get("name") != (visual.name or visual.id):
+                            continue
+                        data_point_entries = []
+                        for value, color in cat_colors.items():
+                            data_point_entries.append(self.transformer.build_category_data_points(
+                                cat["entity"], cat["property"], [str(value)], [color]
+                            ))
+                        if data_point_entries:
+                            flat_entries = [e for sub in data_point_entries for e in sub]
+                            part.payload.setdefault("objects", {})["dataPoint"] = flat_entries
+                            category_color_changes.append({"visual": visual.name, "mappings": len(flat_entries)})
+                        break
 
         # Apply page background and wallpaper color
         background_changes: list[dict[str, Any]] = []
@@ -2095,19 +2120,34 @@ class ReportModernizationService:
             if has_style_guide:
                 sg = style_guide_resp.data.get("styleGuide", {})
                 sg_layout = sg.get("layout", {})
-                if sg_layout.get("visualSpacing"):
-                    layout_config["gap"] = sg_layout["visualSpacing"]
-                if sg_layout.get("pagePadding"):
-                    layout_config["margin"] = sg_layout["pagePadding"]
+                ps = sg.get("pageStructure", {})
+                body = ps.get("body", {}) if ps else {}
+                # Prefer body.interVisualGap > layout.visualSpacing > default
+                gap = body.get("interVisualGap") or sg_layout.get("visualSpacing")
+                margin = body.get("innerPadding") or sg_layout.get("pagePadding")
+                if gap:
+                    layout_config["gap"] = gap
+                if margin:
+                    layout_config["margin"] = margin
+
+            # enforceTopRowKpis: move KPI visuals to top of sort order
+            enforce_kpis = style_guide_resp.data.get("styleGuide", {}).get("rules", {}).get("enforceTopRowKpis", False) if has_style_guide else False
 
             pages_fixed = 0
             for page in report.pages:
                 try:
+                    # If enforceTopRowKpis, reorder visuals so cards/KPIs come first
+                    if enforce_kpis:
+                        kpi_types = {"card", "multiRowCard", "kpi"}
+                        kpi_visuals = [v for v in page.visuals if v.visual_type in kpi_types]
+                        other_visuals = [v for v in page.visuals if v.visual_type not in kpi_types]
+                        page.visuals = kpi_visuals + other_visuals
+
                     self.rearrange_page_visuals(workspace_id, report_id, page.name, layout_config, dry_run=False)
                     pages_fixed += 1
                 except Exception:
                     pass
-            executed.append({"action": "fix_layout", "success": True, "pagesFixed": pages_fixed})
+            executed.append({"action": "fix_layout", "success": True, "pagesFixed": pages_fixed, "enforceTopRowKpis": enforce_kpis})
 
         # 5. Validate style compliance (final check)
         compliance_result: dict[str, Any] = {}

@@ -125,6 +125,41 @@ class PageStructureEngine:
                 )
             )
 
+            # (a2) Apply zone background colors to page parts ----------------
+            if not dry_run:
+                for part in report.parts:
+                    if not part.path.endswith("/page.json") or not isinstance(part.payload, dict):
+                        continue
+                    if part.payload.get("name") != page.name:
+                        continue
+                    # Set canvas size
+                    part.payload["width"] = canvas.width
+                    part.payload["height"] = canvas.height
+                    # Apply zone background colors via objects
+                    objects = part.payload.setdefault("objects", {})
+                    if structure.header and structure.header.background_color:
+                        objects.setdefault("headerBackground", [{"properties": {}}])
+                        bg_props = objects["headerBackground"][0].setdefault("properties", {})
+                        bg_props["color"] = {"solid": {"color": {"expr": {"Literal": {"Value": f"'{structure.header.background_color}'"}}}}}
+                        plan.changes.append(TransformationChange(
+                            target=f"page:{page.name}", path="headerBackground.color",
+                            old_value=None, new_value=structure.header.background_color))
+                    if structure.footer and structure.footer.background_color:
+                        objects.setdefault("footerBackground", [{"properties": {}}])
+                        bg_props = objects["footerBackground"][0].setdefault("properties", {})
+                        bg_props["color"] = {"solid": {"color": {"expr": {"Literal": {"Value": f"'{structure.footer.background_color}'"}}}}}
+                        plan.changes.append(TransformationChange(
+                            target=f"page:{page.name}", path="footerBackground.color",
+                            old_value=None, new_value=structure.footer.background_color))
+                    if structure.filter_panel and structure.filter_panel.background_color:
+                        objects.setdefault("filterPanelBackground", [{"properties": {}}])
+                        bg_props = objects["filterPanelBackground"][0].setdefault("properties", {})
+                        bg_props["color"] = {"solid": {"color": {"expr": {"Literal": {"Value": f"'{structure.filter_panel.background_color}'"}}}}}
+                        plan.changes.append(TransformationChange(
+                            target=f"page:{page.name}", path="filterPanelBackground.color",
+                            old_value=None, new_value=structure.filter_panel.background_color))
+                    break
+
             # (b) Check each visual against body bounds ----------------------
             bx = body_bounds["x"]
             by = body_bounds["y"]

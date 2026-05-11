@@ -391,7 +391,31 @@ class StyleTransformationEngine:
                 self._apply_typography_to_visual(visual, style_guide, plan)
 
                 # Extended: apply deep visual-type formatting rules
-                self._apply_visual_type_rules(visual, style_guide, plan)
+                # Check for page-level overrides first
+                page_override_rules = None
+                if style_guide.page_overrides and page.display_name in style_guide.page_overrides:
+                    override = style_guide.page_overrides[page.display_name]
+                    if override.visual_type_rules:
+                        page_override_rules = override.visual_type_rules
+                self._apply_visual_type_rules(visual, style_guide, plan, page_override_rules=page_override_rules)
+
+                # Auto-snap dimensions to grid if dimensionSnap is set
+                snap = style_guide.layout.dimension_snap
+                if snap and snap > 0:
+                    for dim_attr in ("x", "y", "width", "height"):
+                        val = getattr(visual, dim_attr, None)
+                        if val is not None:
+                            snapped = round(val / snap) * snap
+                            if snapped != val:
+                                self._apply_if_changed(
+                                    plan,
+                                    target=f"visual:{visual.id}",
+                                    path=f"position.{dim_attr}",
+                                    container=visual.properties.setdefault("position", {}),
+                                    key=dim_attr,
+                                    new_value=snapped,
+                                )
+                                setattr(visual, dim_attr, snapped)
 
         if dry_run:
             return report, plan
@@ -409,7 +433,7 @@ class StyleTransformationEngine:
     ) -> None:
         """Apply per-element typography rules (font family, size, weight) to a visual."""
         typo = style_guide.typography
-        if not typo.elements and not typo.font_family:
+        if not typo.elements and not typo.font_family and not typo.title_font_family:
             return
 
         visual.objects.setdefault("_typography_applied", {})
@@ -428,6 +452,17 @@ class StyleTransformationEngine:
             )
 
         if not typo.elements:
+            # Legacy fallback: apply titleFontSize/bodyFontSize when elements not configured
+            if typo.title_font_size:
+                title_obj = self._unwrap_pbir_object(visual.objects, "title")
+                self._apply_if_changed(plan, target=f"visual:{visual.id}",
+                                       path="objects.title.fontSize", container=title_obj,
+                                       key="fontSize", new_value=typo.title_font_size)
+            if typo.body_font_size and visual.visual_type in ("card", "multiRowCard", "textbox"):
+                labels_obj = self._unwrap_pbir_object(visual.objects, "labels")
+                self._apply_if_changed(plan, target=f"visual:{visual.id}",
+                                       path="objects.labels.fontSize", container=labels_obj,
+                                       key="fontSize", new_value=typo.body_font_size)
             return
 
         # Determine which typography elements apply to this visual type
@@ -511,18 +546,20 @@ class StyleTransformationEngine:
     # ------------------------------------------------------------------
 
     def _resolve_visual_type_rules(
-        self, visual: VisualDefinition, style_guide: StyleGuide
+        self, visual: VisualDefinition, style_guide: StyleGuide,
+        override_rules: dict[str, VisualTypeRules] | None = None,
     ) -> VisualTypeRules | None:
         """Find the matching VisualTypeRules for a visual, checking aliases."""
-        if not style_guide.visual_type_rules:
+        rules_dict = override_rules or style_guide.visual_type_rules
+        if not rules_dict:
             return None
 
         # Direct match by PBI visual type
-        if visual.visual_type in style_guide.visual_type_rules:
-            return style_guide.visual_type_rules[visual.visual_type]
+        if visual.visual_type in rules_dict:
+            return rules_dict[visual.visual_type]
 
         # Match via aliases
-        for rule_name, rules in style_guide.visual_type_rules.items():
+        for rule_name, rules in rules_dict.items():
             aliases = VISUAL_TYPE_ALIASES.get(rule_name, [])
             if visual.visual_type in aliases:
                 return rules
@@ -534,9 +571,15 @@ class StyleTransformationEngine:
         visual: VisualDefinition,
         style_guide: StyleGuide,
         plan: TransformationPlan,
+        page_override_rules: dict[str, VisualTypeRules] | None = None,
     ) -> None:
         """Apply deep per-visual-type formatting rules (header/values/total, axes, legend, etc.)."""
-        type_rules = self._resolve_visual_type_rules(visual, style_guide)
+        # Page overrides take priority over global rules
+        type_rules = None
+        if page_override_rules:
+            type_rules = self._resolve_visual_type_rules(visual, style_guide, override_rules=page_override_rules)
+        if not type_rules:
+            type_rules = self._resolve_visual_type_rules(visual, style_guide)
         if not type_rules:
             return
 
