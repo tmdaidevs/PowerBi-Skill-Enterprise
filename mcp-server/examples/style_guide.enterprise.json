@@ -1,24 +1,188 @@
 {
+  "name": "MB OneData PowerBI Style Guide",
+  "version": "1.0.0",
+  "description": "Enterprise style guide based on MB corporate design standards.",
   "theme": {
-    "primaryColor": "#0078D4",
-    "backgroundColor": "#FFFFFF",
-    "textColor": "#1F1F1F"
+    "primaryColor": "#0078D6",
+    "backgroundColor": "#F8F8F8",
+    "textColor": "#000000",
+    "dataColors": ["#0078D6", "#008DFC", "#B4DDFE", "#E6F5FF", "#80C6FF", "#4EAFFD", "#036DC1", "#025497"]
   },
   "typography": {
-    "titleFontFamily": "Segoe UI Semibold",
-    "bodyFontFamily": "Segoe UI",
-    "titleFontSize": 16,
-    "bodyFontSize": 11
+    "titleFontFamily": "MB Corpo S Text Office",
+    "bodyFontFamily": "MB Corpo S Text Office",
+    "titleFontSize": 24,
+    "bodyFontSize": 10,
+    "fontFamily": "MB Corpo S Text Office",
+    "elements": {
+      "pageTitle": { "size": 24, "weight": "Regular" },
+      "subtitle": { "size": 9, "weight": "Regular" },
+      "visualTitle": { "size": 18, "weight": "Bold" },
+      "filterBarTitle": { "size": 12, "weight": "Regular" },
+      "axisLabels": { "size": 10, "weight": "Regular" },
+      "filterValues": { "size": 8, "weight": "Regular" },
+      "tableHeaders": { "size": 10, "weight": "Bold" },
+      "tableTotals": { "size": 12, "weight": "Bold" },
+      "kpiValues": { "size": 15, "weight": "Regular" }
+    }
   },
   "layout": {
     "pagePadding": 16,
-    "visualSpacing": 12,
-    "cornerRadius": 8
+    "visualSpacing": 24,
+    "cornerRadius": 0,
+    "dimensionSnap": 4
   },
   "rules": {
     "maxVisualsPerPage": 6,
     "allowCustomVisuals": true,
-    "enforceTopRowKpis": true
+    "enforceTopRowKpis": true,
+    "approvedFonts": ["MB Corpo S Text Office"]
+  },
+  "colors": {
+    "reportPalette": {
+      "primary": [
+        { "name": "White", "hex": "#FFFFFF", "token": "common/white", "usage": "Text on dark backgrounds, visual backgrounds" },
+        { "name": "Black", "hex": "#000000", "token": "common/black", "usage": "Main text, titles, top bar" },
+        { "name": "Primary blue", "hex": "#0078D6", "token": "primary/main", "usage": "Primary color, links" },
+        { "name": "Title gray", "hex": "#333333", "token": "wb/color/text/main/default", "usage": "Table background header" },
+        { "name": "Input label text", "hex": "#C9C9C9", "token": "element/text/text-clear-neutral", "usage": "Filters title" }
+      ],
+      "secondary": [
+        { "name": "Main Background", "hex": "#F8F8F8", "token": "wb/color/section/mild", "usage": "Default background, table zebra" },
+        { "name": "Secondary background Grey", "hex": "#E8E8E8", "token": "MB Further Colors/Grey/[85]", "usage": "Subtle backgrounds" },
+        { "name": "Secondary background Blue", "hex": "#80BCEB", "token": "others/Switch on background Pri50", "usage": "Active switch" }
+      ],
+      "tertiary": [
+        { "name": "Data extra color 1", "hex": "#0078D6", "token": "dataVis/extended/color 1" },
+        { "name": "Data extra color 2", "hex": "#125D5D", "token": "dataVis/extended/color 3" },
+        { "name": "Data extra color 3", "hex": "#991844", "token": "dataVis/extended/color 4" },
+        { "name": "Data extra color 4", "hex": "#FF4A4A", "token": "dataVis/extended/color 5" },
+        { "name": "Data extra color 5", "hex": "#660F0F", "token": "dataVis/extended/color 6" },
+        { "name": "Data extra color 6", "hex": "#21A330", "token": "dataVis/extended/color 7" },
+        { "name": "Data extra color 7", "hex": "#FC5895", "token": "dataVis/extended/color 9" },
+        { "name": "Data extra color 8", "hex": "#B38000", "token": "dataVis/extended/color 10" },
+        { "name": "Data extra color 9", "hex": "#C23E15", "token": "dataVis/extended/color 13" },
+        { "name": "Data extra color 10", "hex": "#7C30E6", "token": "dataVis/extended/color 14" }
+      ]
+    },
+    "visualPalette": [
+      { "name": "Primary blue", "hex": "#0078D6", "token": "primary/main" },
+      { "name": "Data blue #1", "hex": "#008DFC", "token": "dataVis/basic/color 1" },
+      { "name": "Data blue #2", "hex": "#B4DDFE", "token": "dataVis/basic/color 2" },
+      { "name": "Data blue #3", "hex": "#E6F5FF", "token": "dataVis/basic/color 3" },
+      { "name": "Data blue #4", "hex": "#80C6FF", "token": "dataVis/basic/color 4" },
+      { "name": "Data blue #5", "hex": "#4EAFFD", "token": "dataVis/basic/color 5" },
+      { "name": "Data blue #6", "hex": "#036DC1", "token": "dataVis/basic/color 6" },
+      { "name": "Data blue #7", "hex": "#025497", "token": "dataVis/basic/color 7" }
+    ],
+    "sentiment": {
+      "positive": "#198025",
+      "negative": "#D92121",
+      "neutral": "#E8BD00"
+    },
+    "divergent": {
+      "max": "#025497",
+      "middle": "#008DFC",
+      "min": "#E6F5FF"
+    },
+    "themeAdvanced": {
+      "firstLevel": "#000000",
+      "secondLevel": "#000000",
+      "thirdLevel": "#F8F8F8",
+      "fourthLevel": "#C9C9C9",
+      "background": "#FFFFFF",
+      "secondaryBackground": "#C9C9C9"
+    }
+  },
+  "pageStructure": {
+    "canvas": { "width": 1280, "height": 720 },
+    "header": {
+      "height": 64,
+      "backgroundColor": "#000000",
+      "elements": {
+        "logoLeft": { "width": 40, "height": 40, "x": 16, "y": 12, "name": "MB Logo" },
+        "logoRight": { "width": 64, "height": 32, "x": 1200, "y": 16, "name": "Mira Logo" }
+      }
+    },
+    "footer": {
+      "height": 32,
+      "backgroundColor": "#000000",
+      "elements": {
+        "logoLeft": { "width": 32, "height": 32, "x": 16, "y": 688, "name": "MB Logo Footer" }
+      },
+      "navigationItems": ["Landing page", "News and updates", "FAQ", "KPI definition", "User guide"]
+    },
+    "filterPanel": {
+      "side": "right",
+      "width": 200,
+      "topPadding": 18,
+      "backgroundColor": "#000000"
+    },
+    "body": {
+      "leftMargin": 40,
+      "rightMargin": 24,
+      "topMargin": 32,
+      "bottomMargin": 16,
+      "innerPadding": 24,
+      "interVisualGap": 24
+    }
+  },
+  "visualTypeRules": {
+    "table": {
+      "variants": {
+        "v1": {
+          "header": { "bgColor": "#333333", "fontSize": 10, "fontWeight": "Bold", "fontColor": "#FFFFFF" },
+          "values": { "bgColor": ["#F8F8F8", "#FFFFFF"], "fontSize": 10, "fontWeight": "Regular", "fontColor": "#000000" },
+          "total": { "bgColor": "#FFFFFF", "fontSize": 12, "fontWeight": "Regular", "fontColor": "#333333" }
+        },
+        "v2": {
+          "header": { "bgColor": "#FFFFFF", "fontSize": 10, "fontWeight": "Bold", "fontColor": "#333333" },
+          "values": { "bgColor": ["#F8F8F8", "#FFFFFF"], "fontSize": 10, "fontWeight": "Regular", "fontColor": "#000000" },
+          "total": { "bgColor": "#333333", "fontSize": 12, "fontWeight": "Regular", "fontColor": "#FFFFFF" }
+        }
+      },
+      "defaultVariant": "v1"
+    },
+    "matrix": {
+      "header": { "bgColor": "#333333", "fontSize": 10, "fontWeight": "Bold", "fontColor": "#FFFFFF" },
+      "values": { "bgColor": ["#F8F8F8", "#FFFFFF"], "fontSize": 10, "fontWeight": "Regular", "fontColor": "#000000" },
+      "total": { "bgColor": "#FFFFFF", "fontSize": 12, "fontWeight": "Regular", "fontColor": "#333333" }
+    },
+    "lineChart": {
+      "xAxis": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#000000" },
+      "yAxis": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#000000" },
+      "legend": { "position": "TopLeft", "fontSize": 10, "fontWeight": "Regular", "fontColor": "#000000" }
+    },
+    "stackedChart": {
+      "xAxis": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#000000" },
+      "yAxis": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#000000" },
+      "legend": { "position": "TopLeft", "fontSize": 10, "fontWeight": "Regular", "fontColor": "#000000" }
+    },
+    "comboChart": {
+      "xAxis": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#000000" },
+      "yAxis": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#000000" },
+      "legend": { "position": "TopLeft", "fontSize": 10, "fontWeight": "Regular", "fontColor": "#000000" }
+    },
+    "barChart": {
+      "xAxis": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#000000" },
+      "yAxis": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#000000" }
+    },
+    "kpiCard": {
+      "labels": { "fontSize": 15, "fontWeight": "Regular", "fontColor": "#000000" }
+    },
+    "gauge": {
+      "labels": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#000000" }
+    },
+    "areaChart": {
+      "xAxis": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#000000" },
+      "yAxis": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#000000" }
+    },
+    "waterfall": {
+      "labels": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#000000" }
+    },
+    "donutChart": {
+      "labels": { "fontSize": 8, "fontWeight": "Regular", "fontColor": "#000000" }
+    }
   },
   "visualRules": {
     "barChart": {
@@ -26,7 +190,7 @@
       "titleAlignment": "left"
     },
     "table": {
-      "alternatingRows": false
+      "alternatingRows": true
     }
   }
 }

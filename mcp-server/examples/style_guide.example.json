@@ -1,7 +1,7 @@
 {
   "name": "My Style Guide",
   "version": "1.0.0",
-  "description": "Custom style guide for Power BI dashboards. Edit with your brand colors.",
+  "description": "Custom style guide — edit with your brand. All sections are optional.",
   "theme": {
     "primaryColor": "#0078D4",
     "backgroundColor": "#FFFFFF",
@@ -12,17 +12,36 @@
     "titleFontFamily": "Segoe UI Semibold",
     "bodyFontFamily": "Segoe UI",
     "titleFontSize": 14,
-    "bodyFontSize": 10
+    "bodyFontSize": 10,
+    "fontFamily": null,
+    "elements": {
+      "pageTitle": { "size": 24, "weight": "Regular" },
+      "subtitle": { "size": 9, "weight": "Regular" },
+      "visualTitle": { "size": 18, "weight": "Bold" },
+      "filterBarTitle": { "size": 12, "weight": "Regular" },
+      "axisLabels": { "size": 10, "weight": "Regular" },
+      "filterValues": { "size": 8, "weight": "Regular" },
+      "tableHeaders": { "size": 10, "weight": "Bold" },
+      "tableTotals": { "size": 12, "weight": "Bold" },
+      "kpiValues": { "size": 15, "weight": "Regular" }
+    }
   },
   "layout": {
     "pagePadding": 20,
     "visualSpacing": 20,
-    "cornerRadius": 8
+    "cornerRadius": 8,
+    "dimensionSnap": null
   },
   "rules": {
     "maxVisualsPerPage": 12,
     "allowCustomVisuals": true,
-    "enforceTopRowKpis": false
+    "enforceTopRowKpis": false,
+    "titlePattern": null,
+    "approvedFonts": null
   },
-  "visualRules": {}
+  "visualRules": {},
+  "visualTypeRules": null,
+  "colors": null,
+  "pageStructure": null,
+  "categoryColors": null
 }

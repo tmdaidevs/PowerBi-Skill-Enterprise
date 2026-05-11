@@ -1,9 +1,25 @@
 from __future__ import annotations
 
-from src.models.schemas import ReportDefinition, ReportFormat, Severity, ValidationResult, WarningItem
+import re
+
+from src.models.schemas import (
+    PageStructure,
+    ReportDefinition,
+    ReportFormat,
+    Severity,
+    StyleGuide,
+    ValidationResult,
+    WarningItem,
+)
+from src.transformations.page_structure import PageStructureEngine
 
 
 class ReportValidator:
+
+    # ------------------------------------------------------------------
+    # Core structural validation (existing)
+    # ------------------------------------------------------------------
+
     def validate(self, report: ReportDefinition) -> ValidationResult:
         issues: list[WarningItem] = []
 
@@ -131,3 +147,232 @@ class ReportValidator:
 
         valid = not any(i.severity == Severity.BLOCKER for i in issues)
         return ValidationResult(valid=valid, issues=issues)
+
+    # ------------------------------------------------------------------
+    # Extended: style-guide compliance validation
+    # ------------------------------------------------------------------
+
+    def validate_style_compliance(
+        self,
+        report: ReportDefinition,
+        style_guide: StyleGuide,
+    ) -> ValidationResult:
+        """Validate a report against a style guide's extended rules.
+
+        Checks font compliance, color palette compliance, dimension snapping,
+        zone boundaries, and title consistency.
+        """
+        issues: list[WarningItem] = []
+
+        # Run core validation first
+        core_result = self.validate(report)
+        issues.extend(core_result.issues)
+
+        # Font compliance
+        issues.extend(self._check_font_compliance(report, style_guide))
+
+        # Color compliance
+        issues.extend(self._check_color_compliance(report, style_guide))
+
+        # Dimension snapping
+        issues.extend(self._check_dimension_snapping(report, style_guide))
+
+        # Zone boundary compliance
+        issues.extend(self._check_zone_compliance(report, style_guide))
+
+        # Title consistency
+        issues.extend(self._check_title_consistency(report, style_guide))
+
+        valid = not any(i.severity == Severity.BLOCKER for i in issues)
+        return ValidationResult(valid=valid, issues=issues)
+
+    # ------------------------------------------------------------------
+    # Font compliance
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _check_font_compliance(
+        report: ReportDefinition,
+        style_guide: StyleGuide,
+    ) -> list[WarningItem]:
+        """Check that all visuals use an approved font family."""
+        issues: list[WarningItem] = []
+        approved = style_guide.rules.approved_fonts
+        if not approved:
+            # Also check typography.fontFamily as the single approved font
+            font_family = style_guide.typography.font_family
+            if font_family:
+                approved = [font_family]
+            else:
+                return issues
+
+        approved_lower = {f.lower() for f in approved}
+
+        for page in report.pages:
+            for visual in page.visuals:
+                for obj_key, obj_val in visual.objects.items():
+                    if isinstance(obj_val, dict):
+                        font = obj_val.get("fontFamily")
+                        if font and font.lower() not in approved_lower:
+                            issues.append(
+                                WarningItem(
+                                    severity=Severity.WARNING,
+                                    code="unapproved_font",
+                                    message=f"Visual '{visual.name or visual.id}' uses unapproved font '{font}' in objects.{obj_key}",
+                                    remediation=f"Change font to one of: {', '.join(approved)}",
+                                )
+                            )
+        return issues
+
+    # ------------------------------------------------------------------
+    # Color palette compliance
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _check_color_compliance(
+        report: ReportDefinition,
+        style_guide: StyleGuide,
+    ) -> list[WarningItem]:
+        """Check that explicit fill colors are in the approved palette."""
+        issues: list[WarningItem] = []
+
+        # Build the set of all approved colors
+        approved: set[str] = set()
+        approved.update(c.upper() for c in style_guide.get_data_colors())
+        approved.add(style_guide.theme.primary_color.upper())
+        approved.add(style_guide.theme.background_color.upper())
+        approved.add(style_guide.theme.text_color.upper())
+
+        if style_guide.colors:
+            if style_guide.colors.sentiment:
+                approved.add(style_guide.colors.sentiment.positive.upper())
+                approved.add(style_guide.colors.sentiment.negative.upper())
+                approved.add(style_guide.colors.sentiment.neutral.upper())
+            if style_guide.colors.divergent:
+                approved.add(style_guide.colors.divergent.max.upper())
+                approved.add(style_guide.colors.divergent.middle.upper())
+                approved.add(style_guide.colors.divergent.min.upper())
+            if style_guide.colors.report_palette:
+                for tier_colors in style_guide.colors.report_palette.values():
+                    approved.update(c.hex.upper() for c in tier_colors)
+            for color in style_guide.get_category_colors().values():
+                approved.add(color.upper())
+
+        if not approved:
+            return issues
+
+        for page in report.pages:
+            for visual in page.visuals:
+                for obj_key, obj_val in visual.objects.items():
+                    if isinstance(obj_val, dict):
+                        for prop_key, prop_val in obj_val.items():
+                            if isinstance(prop_val, str) and prop_val.startswith("#") and len(prop_val) in (4, 7, 9):
+                                if prop_val.upper() not in approved:
+                                    issues.append(
+                                        WarningItem(
+                                            severity=Severity.INFO,
+                                            code="unapproved_color",
+                                            message=f"Visual '{visual.name or visual.id}' uses color {prop_val} in objects.{obj_key}.{prop_key} which is not in the approved palette",
+                                            remediation="Replace with an approved palette color.",
+                                        )
+                                    )
+        return issues
+
+    # ------------------------------------------------------------------
+    # Dimension snapping
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _check_dimension_snapping(
+        report: ReportDefinition,
+        style_guide: StyleGuide,
+    ) -> list[WarningItem]:
+        """Check that visual x/y/width/height are multiples of the snap value."""
+        issues: list[WarningItem] = []
+        snap = style_guide.get_dimension_snap()
+        if not snap:
+            return issues
+
+        for page in report.pages:
+            for visual in page.visuals:
+                for dim_name, dim_val in [("x", visual.x), ("y", visual.y), ("width", visual.width), ("height", visual.height)]:
+                    if dim_val is not None and int(dim_val) % snap != 0:
+                        issues.append(
+                            WarningItem(
+                                severity=Severity.WARNING,
+                                code="dimension_not_snapped",
+                                message=f"Visual '{visual.name or visual.id}' has {dim_name}={dim_val} which is not a multiple of {snap}",
+                                remediation=f"Adjust {dim_name} to nearest multiple of {snap}: {round(dim_val / snap) * snap}",
+                            )
+                        )
+        return issues
+
+    # ------------------------------------------------------------------
+    # Zone boundary compliance
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _check_zone_compliance(
+        report: ReportDefinition,
+        style_guide: StyleGuide,
+    ) -> list[WarningItem]:
+        """Check that visuals are within their designated body zone."""
+        issues: list[WarningItem] = []
+        if not style_guide.page_structure:
+            return issues
+
+        engine = PageStructureEngine()
+        bounds = engine.compute_body_bounds(style_guide.page_structure)
+        bx, by, bw, bh = bounds["x"], bounds["y"], bounds["width"], bounds["height"]
+
+        for page in report.pages:
+            for visual in page.visuals:
+                if visual.x is None or visual.y is None:
+                    continue
+                vx, vy = visual.x, visual.y
+                vw = visual.width or 0
+                vh = visual.height or 0
+
+                if vx < bx or vy < by or vx + vw > bx + bw or vy + vh > by + bh:
+                    issues.append(
+                        WarningItem(
+                            severity=Severity.WARNING,
+                            code="visual_outside_body_zone",
+                            message=f"Visual '{visual.name or visual.id}' on page '{page.name}' extends outside the body zone ({bx},{by},{bw},{bh})",
+                            remediation="Reposition the visual within the body zone boundaries.",
+                        )
+                    )
+        return issues
+
+    # ------------------------------------------------------------------
+    # Title consistency
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _check_title_consistency(
+        report: ReportDefinition,
+        style_guide: StyleGuide,
+    ) -> list[WarningItem]:
+        """Check visual titles match the naming pattern if one is set."""
+        issues: list[WarningItem] = []
+        pattern = style_guide.rules.title_pattern
+        if not pattern:
+            return issues
+
+        try:
+            regex = re.compile(pattern)
+        except re.error:
+            return issues
+
+        for page in report.pages:
+            for visual in page.visuals:
+                if visual.name and not regex.match(visual.name):
+                    issues.append(
+                        WarningItem(
+                            severity=Severity.INFO,
+                            code="title_pattern_mismatch",
+                            message=f"Visual '{visual.name}' on page '{page.name}' does not match title pattern '{pattern}'",
+                            remediation="Rename visual to match the naming convention.",
+                        )
+                    )
+        return issues

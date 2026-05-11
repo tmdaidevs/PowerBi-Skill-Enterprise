@@ -171,6 +171,16 @@ def apply_conditional_format(workspace_id: str, report_id: str, page_id_or_name:
     return service.apply_conditional_format(workspace_id, report_id, page_id_or_name, visual_id_or_name, column_field, rules, target_property=target_property, dry_run=dry_run).model_dump(mode="json")
 
 
+def apply_page_structure(workspace_id: str, report_id: str, style_guide: dict[str, Any] | None = None, dry_run: bool = True) -> dict[str, Any]:
+    """Apply zone-based page layout (header/footer/filter/body) from a style guide."""
+    return service.apply_page_structure(workspace_id, report_id, style_guide_payload=style_guide, dry_run=dry_run).model_dump(mode="json")
+
+
+def validate_style_compliance(workspace_id: str, report_id: str, style_guide: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Validate a report against the full style guide (fonts, colors, snapping, zones, titles)."""
+    return service.validate_style_compliance(workspace_id, report_id, style_guide_payload=style_guide).model_dump(mode="json")
+
+
 def remove_visual(workspace_id: str, report_id: str, page_id_or_name: str, visual_id_or_name: str, dry_run: bool = True) -> dict[str, Any]:
     return service.remove_visual(workspace_id, report_id, page_id_or_name, visual_id_or_name, dry_run=dry_run).model_dump(mode="json")
 
