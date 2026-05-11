@@ -1874,29 +1874,55 @@ class ReportModernizationService:
             except Exception as exc:
                 executed.append({"action": "apply_page_structure", "success": False, "error": str(exc)})
 
-        # 3. Rename hash-named visuals
+        # 3. Rename hash-named visuals + 4. Fix layout — batched into a single write
+        #    Instead of calling rename_visual/rearrange_page_visuals N times (each does
+        #    a full update_report_definition round-trip), we mutate the report object
+        #    in-memory and write once.
+        report = self._load_report(workspace_id, report_id)  # reload after style changes
+
+        # 3a. Batch rename: mutate all visual names in-memory
         renamed = 0
+        type_counters: dict[str, int] = {}
         for hv in hash_visuals:
+            old_name = hv["visual"]
             visual_type = hv.get("type", "visual")
-            # Generate a meaningful name from visual type + index
-            new_name = f"{visual_type}_{renamed + 1}"
-            try:
-                rename_resp = self.rename_visual(workspace_id, report_id, hv["page"], hv["visual"], new_name, dry_run=False)
-                if rename_resp.success:
+            type_counters[visual_type] = type_counters.get(visual_type, 0) + 1
+            new_name = f"{visual_type}_{type_counters[visual_type]}"
+
+            # Update in report.parts (the raw definition)
+            for part in report.parts:
+                if not part.path.endswith("/visual.json") or not isinstance(part.payload, dict):
+                    continue
+                if part.payload.get("name") == old_name:
+                    part.payload["name"] = new_name
                     renamed += 1
-            except Exception:
-                pass
+                    break
+
         if hash_visuals:
             executed.append({"action": "rename_visuals", "success": True, "renamed": renamed, "total": len(hash_visuals)})
 
-        # 4. Fix layout issues
+        # 3b. Write the batched changes in a single API call
+        if renamed > 0 or layout_issues:
+            definition_parts = self._report_to_definition_parts(report)
+            try:
+                result = self.api_client.update_report_definition(workspace_id, report_id, definition_parts)
+                if result.get("status") == "pending" and result.get("location"):
+                    state = self.api_client.wait_for_operation(result["location"])
+                    result = {"status": state.status}
+                self._invalidate_cache(workspace_id, report_id)
+            except FabricApiError as exc:
+                executed.append({"action": "batch_write", "success": False, "error": str(exc)})
+
+        # 4. Fix layout issues (rearrange runs per-page but each is a single write)
         if layout_issues:
+            pages_fixed = 0
             for page in report.pages:
                 try:
                     self.rearrange_page_visuals(workspace_id, report_id, page.name, {}, dry_run=False)
+                    pages_fixed += 1
                 except Exception:
                     pass
-            executed.append({"action": "fix_layout", "success": True, "pagesFixed": len(report.pages)})
+            executed.append({"action": "fix_layout", "success": True, "pagesFixed": pages_fixed})
 
         # 5. Validate style compliance (final check)
         compliance_result: dict[str, Any] = {}
