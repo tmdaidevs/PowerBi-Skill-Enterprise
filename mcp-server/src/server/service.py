@@ -2023,6 +2023,20 @@ class ReportModernizationService:
             try:
                 style_resp = self.apply_full_style(workspace_id, report_id, dry_run=False)
                 executed.append({"action": "apply_style", "success": style_resp.success, "changes": style_resp.data.get("changeCount", 0)})
+
+                # apply_style_guide returns definitionParts but does NOT persist them —
+                # we must call update_report_definition to write changes to the API
+                definition_parts = style_resp.data.get("definitionParts")
+                if style_resp.success and definition_parts:
+                    try:
+                        result = self.api_client.update_report_definition(workspace_id, report_id, definition_parts)
+                        if result.get("status") == "pending" and result.get("location"):
+                            state = self.api_client.wait_for_operation(result["location"])
+                            result = {"status": state.status}
+                        self._invalidate_cache(workspace_id, report_id)
+                        executed.append({"action": "persist_style_changes", "success": True})
+                    except FabricApiError as exc:
+                        executed.append({"action": "persist_style_changes", "success": False, "error": str(exc)})
             except Exception as exc:
                 executed.append({"action": "apply_style", "success": False, "error": str(exc)})
 
