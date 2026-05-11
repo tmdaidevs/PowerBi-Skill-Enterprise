@@ -1010,6 +1010,7 @@ class ReportModernizationService:
         except Exception:
             pass
 
+        self._auto_apply_style(workspace_id, report_id)
         return ToolResponse(success=True, summary=f"Layout applied: {len(changes)} changes", data={"changes": changes, "overlaps": overlaps, "pageHeight": page_height_change})
 
     # ── Audit log retrieval ──────────────────────────────────────────────
@@ -1078,7 +1079,10 @@ class ReportModernizationService:
 
         backup_data = json.loads(path.read_text(encoding="utf-8"))
         definition_parts = self._report_to_definition_parts(ReportDefinition.model_validate(backup_data))
-        return self.update_report_definition(workspace_id, report_id, definition_parts, confirm=True)
+        result = self.update_report_definition(workspace_id, report_id, definition_parts, confirm=True)
+        if result.success:
+            self._auto_apply_style(workspace_id, report_id)
+        return result
 
     # ── Batch apply (single-pass full styling) ───────────────────────────
 
