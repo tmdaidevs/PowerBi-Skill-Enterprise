@@ -2090,10 +2090,20 @@ class ReportModernizationService:
 
         # 4. Fix layout issues (rearrange runs per-page but each is a single write)
         if layout_issues:
+            # Use style guide spacing if available
+            layout_config: dict[str, Any] = {}
+            if has_style_guide:
+                sg = style_guide_resp.data.get("styleGuide", {})
+                sg_layout = sg.get("layout", {})
+                if sg_layout.get("visualSpacing"):
+                    layout_config["gap"] = sg_layout["visualSpacing"]
+                if sg_layout.get("pagePadding"):
+                    layout_config["margin"] = sg_layout["pagePadding"]
+
             pages_fixed = 0
             for page in report.pages:
                 try:
-                    self.rearrange_page_visuals(workspace_id, report_id, page.name, {}, dry_run=False)
+                    self.rearrange_page_visuals(workspace_id, report_id, page.name, layout_config, dry_run=False)
                     pages_fixed += 1
                 except Exception:
                     pass

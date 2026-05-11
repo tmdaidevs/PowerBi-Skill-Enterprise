@@ -6,7 +6,16 @@
     "primaryColor": "#0078D4",
     "backgroundColor": "#F5F5F5",
     "textColor": "#1A1A1A",
-    "dataColors": ["#0078D4", "#2B88D8", "#71AFE5", "#C7E0F4", "#004578", "#005A9E", "#106EBE", "#DEECF9"]
+    "dataColors": [
+      "#0078D4",
+      "#2B88D8",
+      "#71AFE5",
+      "#C7E0F4",
+      "#004578",
+      "#005A9E",
+      "#106EBE",
+      "#DEECF9"
+    ]
   },
   "typography": {
     "titleFontFamily": "Segoe UI Semibold",
@@ -15,52 +24,134 @@
     "bodyFontSize": 10,
     "fontFamily": "Segoe UI",
     "elements": {
-      "pageTitle": { "size": 24, "weight": "Regular" },
-      "subtitle": { "size": 9, "weight": "Regular" },
-      "visualTitle": { "size": 18, "weight": "Bold" },
-      "filterBarTitle": { "size": 12, "weight": "Regular" },
-      "axisLabels": { "size": 10, "weight": "Regular" },
-      "filterValues": { "size": 8, "weight": "Regular" },
-      "tableHeaders": { "size": 10, "weight": "Bold" },
-      "tableTotals": { "size": 12, "weight": "Bold" },
-      "kpiValues": { "size": 15, "weight": "Regular" }
+      "pageTitle": {
+        "size": 24,
+        "weight": "Regular"
+      },
+      "subtitle": {
+        "size": 9,
+        "weight": "Regular"
+      },
+      "visualTitle": {
+        "size": 18,
+        "weight": "Bold"
+      },
+      "filterBarTitle": {
+        "size": 12,
+        "weight": "Regular"
+      },
+      "axisLabels": {
+        "size": 10,
+        "weight": "Regular"
+      },
+      "filterValues": {
+        "size": 8,
+        "weight": "Regular"
+      },
+      "tableHeaders": {
+        "size": 10,
+        "weight": "Bold"
+      },
+      "tableTotals": {
+        "size": 12,
+        "weight": "Bold"
+      },
+      "kpiValues": {
+        "size": 15,
+        "weight": "Regular"
+      }
     }
   },
   "layout": {
     "pagePadding": 16,
     "visualSpacing": 24,
-    "cornerRadius": 0,
+    "cornerRadius": 8,
     "dimensionSnap": 4
   },
   "rules": {
     "maxVisualsPerPage": 6,
     "allowCustomVisuals": true,
     "enforceTopRowKpis": true,
-    "approvedFonts": ["Segoe UI", "Segoe UI Semibold"]
+    "approvedFonts": [
+      "Segoe UI",
+      "Segoe UI Semibold"
+    ]
   },
   "colors": {
     "reportPalette": {
       "primary": [
-        { "name": "White", "hex": "#FFFFFF", "usage": "Text on dark backgrounds, visual backgrounds" },
-        { "name": "Black", "hex": "#1A1A1A", "usage": "Main text, titles" },
-        { "name": "Brand Primary", "hex": "#0078D4", "usage": "Primary color, links" },
-        { "name": "Header Gray", "hex": "#333333", "usage": "Table header background" },
-        { "name": "Muted Text", "hex": "#C9C9C9", "usage": "Filter labels, secondary text" }
+        {
+          "name": "White",
+          "hex": "#FFFFFF",
+          "usage": "Text on dark backgrounds, visual backgrounds"
+        },
+        {
+          "name": "Black",
+          "hex": "#1A1A1A",
+          "usage": "Main text, titles"
+        },
+        {
+          "name": "Brand Primary",
+          "hex": "#0078D4",
+          "usage": "Primary color, links"
+        },
+        {
+          "name": "Header Gray",
+          "hex": "#333333",
+          "usage": "Table header background"
+        },
+        {
+          "name": "Muted Text",
+          "hex": "#C9C9C9",
+          "usage": "Filter labels, secondary text"
+        }
       ],
       "secondary": [
-        { "name": "Page Background", "hex": "#F5F5F5", "usage": "Default page background, zebra rows" },
-        { "name": "Border Gray", "hex": "#E8E8E8", "usage": "Subtle borders and dividers" }
+        {
+          "name": "Page Background",
+          "hex": "#F5F5F5",
+          "usage": "Default page background, zebra rows"
+        },
+        {
+          "name": "Border Gray",
+          "hex": "#E8E8E8",
+          "usage": "Subtle borders and dividers"
+        }
       ]
     },
     "visualPalette": [
-      { "name": "Blue 1", "hex": "#0078D4" },
-      { "name": "Blue 2", "hex": "#2B88D8" },
-      { "name": "Blue 3", "hex": "#71AFE5" },
-      { "name": "Blue 4", "hex": "#C7E0F4" },
-      { "name": "Blue 5", "hex": "#004578" },
-      { "name": "Blue 6", "hex": "#005A9E" },
-      { "name": "Blue 7", "hex": "#106EBE" },
-      { "name": "Blue 8", "hex": "#DEECF9" }
+      {
+        "name": "Blue 1",
+        "hex": "#0078D4"
+      },
+      {
+        "name": "Blue 2",
+        "hex": "#2B88D8"
+      },
+      {
+        "name": "Blue 3",
+        "hex": "#71AFE5"
+      },
+      {
+        "name": "Blue 4",
+        "hex": "#C7E0F4"
+      },
+      {
+        "name": "Blue 5",
+        "hex": "#004578"
+      },
+      {
+        "name": "Blue 6",
+        "hex": "#005A9E"
+      },
+      {
+        "name": "Blue 7",
+        "hex": "#106EBE"
+      },
+      {
+        "name": "Blue 8",
+        "hex": "#DEECF9"
+      }
     ],
     "sentiment": {
       "positive": "#107C10",
@@ -82,22 +173,49 @@
     }
   },
   "pageStructure": {
-    "canvas": { "width": 1280, "height": 720 },
+    "canvas": {
+      "width": 1280,
+      "height": 720
+    },
     "header": {
       "height": 64,
       "backgroundColor": "#1A1A1A",
       "elements": {
-        "logoLeft": { "width": 40, "height": 40, "x": 16, "y": 12, "name": "Company Logo" },
-        "logoRight": { "width": 64, "height": 32, "x": 1200, "y": 16, "name": "Product Logo" }
+        "logoLeft": {
+          "width": 40,
+          "height": 40,
+          "x": 16,
+          "y": 12,
+          "name": "Company Logo"
+        },
+        "logoRight": {
+          "width": 64,
+          "height": 32,
+          "x": 1200,
+          "y": 16,
+          "name": "Product Logo"
+        }
       }
     },
     "footer": {
       "height": 32,
       "backgroundColor": "#1A1A1A",
       "elements": {
-        "logoLeft": { "width": 32, "height": 32, "x": 16, "y": 688, "name": "Company Logo Footer" }
+        "logoLeft": {
+          "width": 32,
+          "height": 32,
+          "x": 16,
+          "y": 688,
+          "name": "Company Logo Footer"
+        }
       },
-      "navigationItems": ["Home", "Overview", "Details", "FAQ", "Help"]
+      "navigationItems": [
+        "Home",
+        "Overview",
+        "Details",
+        "FAQ",
+        "Help"
+      ]
     },
     "filterPanel": {
       "side": "right",
@@ -118,57 +236,182 @@
     "table": {
       "variants": {
         "v1": {
-          "header": { "bgColor": "#333333", "fontSize": 10, "fontWeight": "Bold", "fontColor": "#FFFFFF" },
-          "values": { "bgColor": ["#F5F5F5", "#FFFFFF"], "fontSize": 10, "fontWeight": "Regular", "fontColor": "#1A1A1A" },
-          "total": { "bgColor": "#FFFFFF", "fontSize": 12, "fontWeight": "Regular", "fontColor": "#333333" }
+          "header": {
+            "bgColor": "#333333",
+            "fontSize": 10,
+            "fontWeight": "Bold",
+            "fontColor": "#FFFFFF"
+          },
+          "values": {
+            "bgColor": [
+              "#F5F5F5",
+              "#FFFFFF"
+            ],
+            "fontSize": 10,
+            "fontWeight": "Regular",
+            "fontColor": "#1A1A1A"
+          },
+          "total": {
+            "bgColor": "#FFFFFF",
+            "fontSize": 12,
+            "fontWeight": "Regular",
+            "fontColor": "#333333"
+          }
         },
         "v2": {
-          "header": { "bgColor": "#FFFFFF", "fontSize": 10, "fontWeight": "Bold", "fontColor": "#333333" },
-          "values": { "bgColor": ["#F5F5F5", "#FFFFFF"], "fontSize": 10, "fontWeight": "Regular", "fontColor": "#1A1A1A" },
-          "total": { "bgColor": "#333333", "fontSize": 12, "fontWeight": "Regular", "fontColor": "#FFFFFF" }
+          "header": {
+            "bgColor": "#FFFFFF",
+            "fontSize": 10,
+            "fontWeight": "Bold",
+            "fontColor": "#333333"
+          },
+          "values": {
+            "bgColor": [
+              "#F5F5F5",
+              "#FFFFFF"
+            ],
+            "fontSize": 10,
+            "fontWeight": "Regular",
+            "fontColor": "#1A1A1A"
+          },
+          "total": {
+            "bgColor": "#333333",
+            "fontSize": 12,
+            "fontWeight": "Regular",
+            "fontColor": "#FFFFFF"
+          }
         }
       },
       "defaultVariant": "v1"
     },
     "matrix": {
-      "header": { "bgColor": "#333333", "fontSize": 10, "fontWeight": "Bold", "fontColor": "#FFFFFF" },
-      "values": { "bgColor": ["#F5F5F5", "#FFFFFF"], "fontSize": 10, "fontWeight": "Regular", "fontColor": "#1A1A1A" },
-      "total": { "bgColor": "#FFFFFF", "fontSize": 12, "fontWeight": "Regular", "fontColor": "#333333" }
+      "header": {
+        "bgColor": "#333333",
+        "fontSize": 10,
+        "fontWeight": "Bold",
+        "fontColor": "#FFFFFF"
+      },
+      "values": {
+        "bgColor": [
+          "#F5F5F5",
+          "#FFFFFF"
+        ],
+        "fontSize": 10,
+        "fontWeight": "Regular",
+        "fontColor": "#1A1A1A"
+      },
+      "total": {
+        "bgColor": "#FFFFFF",
+        "fontSize": 12,
+        "fontWeight": "Regular",
+        "fontColor": "#333333"
+      }
     },
     "lineChart": {
-      "xAxis": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#1A1A1A" },
-      "yAxis": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#1A1A1A" },
-      "legend": { "position": "TopLeft", "fontSize": 10, "fontWeight": "Regular", "fontColor": "#1A1A1A" }
+      "xAxis": {
+        "fontSize": 10,
+        "fontWeight": "Regular",
+        "fontColor": "#1A1A1A"
+      },
+      "yAxis": {
+        "fontSize": 10,
+        "fontWeight": "Regular",
+        "fontColor": "#1A1A1A"
+      },
+      "legend": {
+        "position": "TopLeft",
+        "fontSize": 10,
+        "fontWeight": "Regular",
+        "fontColor": "#1A1A1A"
+      }
     },
     "stackedChart": {
-      "xAxis": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#1A1A1A" },
-      "yAxis": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#1A1A1A" },
-      "legend": { "position": "TopLeft", "fontSize": 10, "fontWeight": "Regular", "fontColor": "#1A1A1A" }
+      "xAxis": {
+        "fontSize": 10,
+        "fontWeight": "Regular",
+        "fontColor": "#1A1A1A"
+      },
+      "yAxis": {
+        "fontSize": 10,
+        "fontWeight": "Regular",
+        "fontColor": "#1A1A1A"
+      },
+      "legend": {
+        "position": "TopLeft",
+        "fontSize": 10,
+        "fontWeight": "Regular",
+        "fontColor": "#1A1A1A"
+      }
     },
     "comboChart": {
-      "xAxis": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#1A1A1A" },
-      "yAxis": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#1A1A1A" },
-      "legend": { "position": "TopLeft", "fontSize": 10, "fontWeight": "Regular", "fontColor": "#1A1A1A" }
+      "xAxis": {
+        "fontSize": 10,
+        "fontWeight": "Regular",
+        "fontColor": "#1A1A1A"
+      },
+      "yAxis": {
+        "fontSize": 10,
+        "fontWeight": "Regular",
+        "fontColor": "#1A1A1A"
+      },
+      "legend": {
+        "position": "TopLeft",
+        "fontSize": 10,
+        "fontWeight": "Regular",
+        "fontColor": "#1A1A1A"
+      }
     },
     "barChart": {
-      "xAxis": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#1A1A1A" },
-      "yAxis": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#1A1A1A" }
+      "xAxis": {
+        "fontSize": 10,
+        "fontWeight": "Regular",
+        "fontColor": "#1A1A1A"
+      },
+      "yAxis": {
+        "fontSize": 10,
+        "fontWeight": "Regular",
+        "fontColor": "#1A1A1A"
+      }
     },
     "kpiCard": {
-      "labels": { "fontSize": 15, "fontWeight": "Regular", "fontColor": "#1A1A1A" }
+      "labels": {
+        "fontSize": 15,
+        "fontWeight": "Regular",
+        "fontColor": "#1A1A1A"
+      }
     },
     "gauge": {
-      "labels": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#1A1A1A" }
+      "labels": {
+        "fontSize": 10,
+        "fontWeight": "Regular",
+        "fontColor": "#1A1A1A"
+      }
     },
     "areaChart": {
-      "xAxis": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#1A1A1A" },
-      "yAxis": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#1A1A1A" }
+      "xAxis": {
+        "fontSize": 10,
+        "fontWeight": "Regular",
+        "fontColor": "#1A1A1A"
+      },
+      "yAxis": {
+        "fontSize": 10,
+        "fontWeight": "Regular",
+        "fontColor": "#1A1A1A"
+      }
     },
     "waterfall": {
-      "labels": { "fontSize": 10, "fontWeight": "Regular", "fontColor": "#1A1A1A" }
+      "labels": {
+        "fontSize": 10,
+        "fontWeight": "Regular",
+        "fontColor": "#1A1A1A"
+      }
     },
     "donutChart": {
-      "labels": { "fontSize": 8, "fontWeight": "Regular", "fontColor": "#1A1A1A" }
+      "labels": {
+        "fontSize": 8,
+        "fontWeight": "Regular",
+        "fontColor": "#1A1A1A"
+      }
     }
   },
   "visualRules": {
