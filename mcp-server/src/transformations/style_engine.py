@@ -449,6 +449,38 @@ class StyleTransformationEngine:
 
         if dry_run:
             return report, plan
+
+        # Sync all visual model changes back to report.parts payloads
+        # The engine modifies visual.objects, visual.raw, visual.x/y/w/h etc.
+        # but parts still have the original payload — we must update them.
+        for page in mutable.pages:
+            for visual in page.visuals:
+                for part in mutable.parts:
+                    if not part.path.endswith("/visual.json") or not isinstance(part.payload, dict):
+                        continue
+                    if part.payload.get("name") != (visual.name or visual.id):
+                        continue
+
+                    # Sync position (dimension snap changes)
+                    if visual.x is not None:
+                        part.payload.setdefault("position", {})
+                        part.payload["position"]["x"] = visual.x
+                        part.payload["position"]["y"] = visual.y
+                        part.payload["position"]["width"] = visual.width
+                        part.payload["position"]["height"] = visual.height
+
+                    # Sync objects (typography, visual type rules)
+                    if visual.objects:
+                        filtered_objects = {k: v for k, v in visual.objects.items() if not k.startswith("_")}
+                        part.payload.setdefault("visual", {})["objects"] = filtered_objects
+
+                    # Sync visualContainerObjects (border radius, background, padding)
+                    vco = visual.raw.get("visualContainerObjects")
+                    if vco:
+                        part.payload.setdefault("visual", {})["visualContainerObjects"] = vco
+
+                    break
+
         return mutable, plan
 
     # ------------------------------------------------------------------
