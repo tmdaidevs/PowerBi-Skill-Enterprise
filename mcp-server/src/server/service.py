@@ -1836,7 +1836,93 @@ class ReportModernizationService:
                 "details": new_suggestions[:10],  # Cap at 10 suggestions
             })
 
-        # Action 7: Layout validation
+        # Action 7: Recommend new pages/sheets based on data model coverage
+        # Analyze which tables/measures are used vs available
+        used_entities: set[str] = set()
+        for page in report.pages:
+            for v in page.visuals:
+                query_state = v.raw.get("visual", {}).get("query", {}).get("queryState", {})
+                for bucket in query_state.values():
+                    for proj in bucket.get("projections", []):
+                        ref = proj.get("queryRef", "")
+                        if "." in ref:
+                            used_entities.add(ref.split(".")[0])
+
+        all_tables = [t["name"] for t in tables]
+        unused_tables = [t for t in all_tables if t not in used_entities]
+
+        page_recommendations: list[dict[str, Any]] = []
+
+        # Recommend a detail/drillthrough page if report only has 1 page and has many measures
+        total_measures = sum(len(t.get("measures", [])) for t in tables)
+        total_columns = sum(len([c for c in t.get("columns", []) if not c.get("isHidden")]) for t in tables)
+        existing_visual_count = sum(len(p.visuals) for p in report.pages)
+
+        if len(report.pages) == 1 and total_measures > 3:
+            page_recommendations.append({
+                "pageType": "detail",
+                "title": "Detail / Drill-through Page",
+                "reason": f"Report has {total_measures} measures but only 1 page — a detail page would allow deeper analysis",
+                "suggestedVisuals": ["table or matrix with all measures", "line chart for trends"],
+            })
+
+        # Recommend an overview/KPI page if no KPI cards exist
+        has_kpi = any(v.visual_type in ("card", "multiRowCard", "kpi") for p in report.pages for v in p.visuals)
+        if not has_kpi and total_measures >= 2:
+            page_recommendations.append({
+                "pageType": "overview",
+                "title": "Executive Summary / KPI Page",
+                "reason": f"{total_measures} measures available but no KPI cards found — an overview page would highlight key metrics",
+                "suggestedVisuals": [f"KPI card for each key measure"],
+            })
+        elif has_kpi and len(report.pages) == 1 and existing_visual_count > 10:
+            page_recommendations.append({
+                "pageType": "overview",
+                "title": "Dedicated KPI Overview Page",
+                "reason": f"Page has {existing_visual_count} visuals — splitting KPIs into their own page improves readability",
+                "suggestedVisuals": ["Large KPI cards with sparklines", "Trend indicators"],
+            })
+
+        # Recommend pages for unused tables
+        for table_name in unused_tables:
+            table = next((t for t in tables if t["name"] == table_name), None)
+            if not table:
+                continue
+            table_measures = [m["name"] for m in table.get("measures", []) if not m.get("isHidden")]
+            table_columns = [c["name"] for c in table.get("columns", []) if not c.get("isHidden")]
+            if len(table_measures) + len(table_columns) >= 3:
+                page_recommendations.append({
+                    "pageType": "analysis",
+                    "title": f"{table_name} Analysis",
+                    "reason": f"Table '{table_name}' has {len(table_measures)} measures and {len(table_columns)} columns but is not used in any visual",
+                    "suggestedVisuals": [
+                        f"Bar/column chart for {table_columns[0]} distribution" if table_columns else None,
+                        f"KPI cards for {', '.join(table_measures[:3])}" if table_measures else None,
+                    ],
+                })
+
+        # Recommend a comparison page if multiple dimension columns exist
+        dimension_cols = []
+        for t in tables:
+            for c in t.get("columns", []):
+                if not c.get("isHidden"):
+                    dimension_cols.append(f"{t['name']}.{c['name']}")
+        if len(dimension_cols) >= 3 and len(report.pages) <= 2:
+            page_recommendations.append({
+                "pageType": "comparison",
+                "title": "Comparison / Breakdown Page",
+                "reason": f"{len(dimension_cols)} dimension columns available — a comparison page would show breakdowns side by side",
+                "suggestedVisuals": ["Clustered bar chart", "Matrix with conditional formatting", "Decomposition tree"],
+            })
+
+        if page_recommendations:
+            plan["recommendations"] = {
+                "newPages": page_recommendations,
+                "newVisuals": new_suggestions[:10] if new_suggestions else [],
+                "summary": f"{len(page_recommendations)} new page(s) and {len(new_suggestions)} new visual(s) recommended",
+            }
+
+        # Action 8: Layout validation
         layout_issues = []
         for page in report.pages:
             positioned = [(v, v.x, v.y, v.width, v.height) for v in page.visuals
