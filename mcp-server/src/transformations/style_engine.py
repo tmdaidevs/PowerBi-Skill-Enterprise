@@ -445,7 +445,7 @@ class StyleTransformationEngine:
         if obj_key in ("categoryAxis", "valueAxis", "legend"):
             return visual_type in chart_types
         if obj_key == "labels":
-            return visual_type in chart_types | card_types | {"gauge"}
+            return visual_type in chart_types | card_types | {"gauge", "decompositionTreeVisual"}
         if obj_key == "filterCard":
             return visual_type == "slicer"
         # title and subTitle apply to everything

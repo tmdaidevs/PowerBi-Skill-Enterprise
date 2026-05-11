@@ -1874,11 +1874,29 @@ class ReportModernizationService:
     ) -> ToolResponse:
         """Apply conditional formatting rules to a visual column.
 
-        Each rule: {"operator": ">", "value": 0, "color": "#C75B3A"}
+        Each rule: {"operator": ">", "value": 0, "color": "#D92121"}
         Operators: "=", ">", ">=", "<", "<=", "!="
 
         column_field format: "entity.property" e.g. "gd_service_principal_summary.failed_events"
+
+        Default colors are pulled from the active style guide's sentiment colors
+        when no explicit color is provided in a rule.
         """
+        # Resolve default colors from style guide
+        default_negative = "#D92121"
+        default_neutral = "#FFFFFF"
+        try:
+            sg_resp = self.get_default_style_guide()
+            if sg_resp.success:
+                sg = sg_resp.data.get("styleGuide", {})
+                sentiment = sg.get("colors", {}).get("sentiment", {}) if sg.get("colors") else {}
+                if sentiment.get("negative"):
+                    default_negative = sentiment["negative"]
+                if sentiment.get("neutral"):
+                    default_neutral = sentiment["neutral"]
+        except Exception:
+            pass
+
         report = self._load_report(workspace_id, report_id)
         page = self._resolve_page(report, page_id_or_name)
         if not page:
@@ -1916,7 +1934,7 @@ class ReportModernizationService:
         # and dataViewWildcard selector for per-row evaluation
         if len(rules) == 1:
             # Single color rule: use linearGradient2 with solid color
-            color = rules[0].get("color", "#C75B3A")
+            color = rules[0].get("color", default_negative)
             cond_format = {
                 "solid": {
                     "color": {
@@ -1949,8 +1967,8 @@ class ReportModernizationService:
             }
         else:
             # Two-color gradient: min color from first rule, max from last
-            min_color = rules[0].get("color", "#FFFFFF")
-            max_color = rules[-1].get("color", "#C75B3A")
+            min_color = rules[0].get("color", default_neutral)
+            max_color = rules[-1].get("color", default_negative)
             cond_format = {
                 "solid": {
                     "color": {

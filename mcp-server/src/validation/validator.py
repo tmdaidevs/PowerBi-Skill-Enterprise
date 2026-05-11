@@ -296,7 +296,7 @@ class ReportValidator:
         for page in report.pages:
             for visual in page.visuals:
                 for dim_name, dim_val in [("x", visual.x), ("y", visual.y), ("width", visual.width), ("height", visual.height)]:
-                    if dim_val is not None and int(dim_val) % snap != 0:
+                    if dim_val is not None and round(dim_val) % snap != 0:
                         issues.append(
                             WarningItem(
                                 severity=Severity.WARNING,
