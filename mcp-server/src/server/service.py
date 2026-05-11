@@ -1110,42 +1110,14 @@ class ReportModernizationService:
 
     @staticmethod
     def _build_theme_from_style_guide(style_guide: StyleGuide) -> dict[str, Any]:
-        """Build a Power BI theme JSON from a StyleGuide model."""
-        return {
-            "name": "Anthropic",
-            "dataColors": style_guide.theme.data_colors,
-            "background": style_guide.theme.background_color,
-            "foreground": style_guide.theme.text_color,
-            "tableAccent": style_guide.theme.primary_color,
-            "good": "#788C5D",
-            "bad": "#C75B3A",
-            "neutral": "#B0AEA5",
-            "maximum": style_guide.theme.primary_color,
-            "center": "#E8E6DC",
-            "minimum": style_guide.theme.background_color,
-            "textClasses": {
-                "title": {
-                    "fontFace": style_guide.typography.title_font_family,
-                    "fontSize": style_guide.typography.title_font_size,
-                    "color": style_guide.theme.text_color,
-                },
-                "header": {
-                    "fontFace": style_guide.typography.title_font_family,
-                    "fontSize": 12,
-                    "color": style_guide.theme.text_color,
-                },
-                "label": {
-                    "fontFace": style_guide.typography.body_font_family,
-                    "fontSize": style_guide.typography.body_font_size,
-                    "color": style_guide.theme.text_color,
-                },
-                "callout": {
-                    "fontFace": "Segoe UI Light",
-                    "fontSize": 28,
-                    "color": style_guide.theme.text_color,
-                },
-            },
-        }
+        """Build a Power BI theme JSON from a StyleGuide model.
+
+        Delegates to ThemeBuilder which supports the full extended schema
+        (sentiment, divergent, advanced colors, typography).
+        """
+        from src.transformations.theme_builder import ThemeBuilder
+
+        return ThemeBuilder.build(style_guide)
 
     # ── Page management ──────────────────────────────────────────────────
 

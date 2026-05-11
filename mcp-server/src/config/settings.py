@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     async_poll_timeout_seconds: int = 120
     backup_directory: str = "./backups"
     bulk_max_workers: int = 4
-    default_style_guide_path: str | None = None
+    default_style_guide_path: str | None = "examples/style_guide.enterprise.json"
     audit_log_path: str = "./audit.jsonl"
     cache_ttl_seconds: int = 60
 
