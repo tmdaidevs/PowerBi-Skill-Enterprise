@@ -488,6 +488,6 @@ Returns a structured report listing each violation with the affected visual, rul
 | File | Description |
 |---|---|
 | `examples/style_guide.example.json` | Blank template with default Power BI colors; copy and customise with your brand |
-| `examples/style_guide.enterprise.json` | MB OneData corporate style guide — full typography, three-tier color palette, page structure zones, visual type rules for 11 visual types |
+| `examples/style_guide.enterprise.json` | Full-featured enterprise style guide with typography, three-tier color palette, page structure zones, visual type rules for 11 visual types |
 
 Use `get_default_style_guide()` to see which guide is currently active, and `set_default_style_guide(style_guide)` to change it at runtime.

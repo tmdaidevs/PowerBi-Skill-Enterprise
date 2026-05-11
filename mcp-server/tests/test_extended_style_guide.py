@@ -113,9 +113,9 @@ class TestSchemaBackwardCompat:
             "bodyFontFamily": "Segoe UI",
             "titleFontSize": 14,
             "bodyFontSize": 10,
-            "fontFamily": "MB Corpo S Text Office",
+            "fontFamily": "Custom Brand Font",
         })
-        assert guide2.get_font_family() == "MB Corpo S Text Office"
+        assert guide2.get_font_family() == "Custom Brand Font"
 
 
 # ---------------------------------------------------------------------------
@@ -173,11 +173,11 @@ class TestThemeBuilder:
             "bodyFontFamily": "Segoe UI",
             "titleFontSize": 14,
             "bodyFontSize": 10,
-            "fontFamily": "MB Corpo S Text Office",
+            "fontFamily": "Custom Brand Font",
         })
         theme = ThemeBuilder.build(guide)
         assert "textClasses" in theme
-        assert theme["textClasses"]["callout"]["fontFamily"] == "MB Corpo S Text Office"
+        assert theme["textClasses"]["callout"]["fontFamily"] == "Custom Brand Font"
 
     def test_theme_advanced_colors(self):
         guide = _base_guide(colors={
@@ -247,7 +247,7 @@ class TestValidatorStyleCompliance:
             "maxVisualsPerPage": 12,
             "allowCustomVisuals": True,
             "enforceTopRowKpis": False,
-            "approvedFonts": ["MB Corpo S Text Office"],
+            "approvedFonts": ["Custom Brand Font"],
         })
         report = _report_with_visual()
         report.pages[0].visuals[0].objects = {"title": {"fontFamily": "Comic Sans MS"}}
