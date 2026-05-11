@@ -1289,7 +1289,16 @@ class ReportModernizationService:
                                 data={"skipped": True})
 
         engine = PageStructureEngine()
-        result_report, plan = engine.apply_page_structure(report, guide, dry_run=dry_run)
+
+        # Build image_creator callback that delegates to add_image_visual
+        def _create_image(page_name: str, image_url: str, position: dict, name: str) -> None:
+            if image_url:  # skip empty URLs (e.g. nav button placeholders)
+                self.add_image_visual(workspace_id, report_id, page_name, image_url, position=position, name=name, dry_run=False)
+
+        result_report, plan = engine.apply_page_structure(
+            report, guide, dry_run=dry_run,
+            image_creator=_create_image if not dry_run else None,
+        )
 
         warnings = [WarningItem(severity=w.severity, code=w.code, message=w.message, remediation=w.remediation) for w in plan.warnings]
 
