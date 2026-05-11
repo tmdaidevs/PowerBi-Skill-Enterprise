@@ -470,9 +470,24 @@ class StyleTransformationEngine:
                         part.payload["position"]["height"] = visual.height
 
                     # Sync objects (typography, visual type rules)
+                    # PBIR expects objects as arrays: {"title": [{"properties": {...}}]}
+                    # Our _unwrap_pbir_object reads into flat dicts, so we must
+                    # merge changes back into the original array format.
                     if visual.objects:
-                        filtered_objects = {k: v for k, v in visual.objects.items() if not k.startswith("_")}
-                        part.payload.setdefault("visual", {})["objects"] = filtered_objects
+                        existing_objs = part.payload.setdefault("visual", {}).setdefault("objects", {})
+                        for obj_key, obj_val in visual.objects.items():
+                            if obj_key.startswith("_"):
+                                continue
+                            if isinstance(obj_val, list):
+                                # Already in PBIR array format — use as-is
+                                existing_objs[obj_key] = obj_val
+                            elif isinstance(obj_val, dict):
+                                # Was unwrapped by _unwrap_pbir_object — re-wrap
+                                if obj_key in existing_objs and isinstance(existing_objs[obj_key], list):
+                                    # Merge into existing array's first element's properties
+                                    existing_objs[obj_key][0].setdefault("properties", {}).update(obj_val)
+                                else:
+                                    existing_objs[obj_key] = [{"properties": obj_val}]
 
                     # Sync visualContainerObjects (border radius, background, padding)
                     vco = visual.raw.get("visualContainerObjects")
