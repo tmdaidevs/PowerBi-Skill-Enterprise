@@ -267,6 +267,24 @@ class StyleTransformationEngine:
             TransformationChange(target=target, path=path, old_value=old_value, new_value=new_value, risk_note=risk_note)
         )
 
+    @staticmethod
+    def _unwrap_pbir_object(visual_objects: dict, obj_key: str) -> dict:
+        """Get a writable properties dict from a PBIR visual objects entry.
+
+        PBIR objects can be either a dict or a list of dicts (e.g.
+        ``[{"properties": {...}}]``). This normalizes to a flat dict
+        suitable for ``_apply_if_changed``.
+        """
+        visual_objects.setdefault(obj_key, {})
+        target = visual_objects[obj_key]
+        if isinstance(target, list):
+            if target and isinstance(target[0], dict):
+                return target[0].setdefault("properties", {})
+            props: dict = {}
+            visual_objects[obj_key] = [{"properties": props}]
+            return props
+        return target
+
     def apply_style_guide(self, report: ReportDefinition, style_guide: StyleGuide, dry_run: bool = True) -> tuple[ReportDefinition, TransformationPlan]:
         mutable = deepcopy(report)
         plan = TransformationPlan(report_id=report.report_id, workspace_id=report.workspace_id, dry_run=dry_run)
@@ -399,12 +417,12 @@ class StyleTransformationEngine:
 
         # Apply global font family to visual title if set
         if font_family:
-            visual.objects.setdefault("title", {})
+            title_obj = self._unwrap_pbir_object(visual.objects, "title")
             self._apply_if_changed(
                 plan,
                 target=f"visual:{visual.id}",
                 path="objects.title.fontFamily",
-                container=visual.objects["title"],
+                container=title_obj,
                 key="fontFamily",
                 new_value=font_family,
             )
@@ -421,8 +439,7 @@ class StyleTransformationEngine:
                 if not self._visual_supports_object(visual.visual_type, obj_key):
                     continue
 
-                visual.objects.setdefault(obj_key, {})
-                target_obj = visual.objects[obj_key]
+                target_obj = self._unwrap_pbir_object(visual.objects, obj_key)
 
                 if "fontSize" in mapping:
                     self._apply_if_changed(
@@ -562,7 +579,7 @@ class StyleTransformationEngine:
                 continue
 
             visual.objects.setdefault(obj_key, {})
-            target_obj = visual.objects[obj_key]
+            target_obj = self._unwrap_pbir_object(visual.objects, obj_key)
 
             if element_style.font_size is not None and "fontSize" in mapping:
                 self._apply_if_changed(
