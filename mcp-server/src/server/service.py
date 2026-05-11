@@ -2152,41 +2152,35 @@ class ReportModernizationService:
             except FabricApiError as exc:
                 executed.append({"action": "batch_write", "success": False, "error": str(exc)})
 
-        # 4. Fix layout issues (rearrange runs per-page but each is a single write)
-        if layout_issues:
-            # Use style guide spacing if available
-            layout_config: dict[str, Any] = {}
-            if has_style_guide:
-                sg = style_guide_resp.data.get("styleGuide", {})
-                sg_layout = sg.get("layout", {})
-                ps = sg.get("pageStructure", {})
-                body = ps.get("body", {}) if ps else {}
-                # Prefer body.interVisualGap > layout.visualSpacing > default
-                gap = body.get("interVisualGap") or sg_layout.get("visualSpacing")
-                margin = body.get("innerPadding") or sg_layout.get("pagePadding")
-                if gap:
-                    layout_config["gap"] = gap
-                if margin:
-                    layout_config["margin"] = margin
+        # 4. Rearrange all pages — ALWAYS run after shape removal + styling
+        #    Use style guide spacing if available
+        layout_config: dict[str, Any] = {}
+        if has_style_guide:
+            sg = style_guide_resp.data.get("styleGuide", {})
+            sg_layout = sg.get("layout", {})
+            ps = sg.get("pageStructure", {})
+            body = ps.get("body", {}) if ps else {}
+            gap = body.get("interVisualGap") or sg_layout.get("visualSpacing")
+            margin = body.get("innerPadding") or sg_layout.get("pagePadding")
+            if gap:
+                layout_config["gap"] = gap
+            if margin:
+                layout_config["margin"] = margin
 
-            # enforceTopRowKpis: move KPI visuals to top of sort order
-            enforce_kpis = style_guide_resp.data.get("styleGuide", {}).get("rules", {}).get("enforceTopRowKpis", False) if has_style_guide else False
+        enforce_kpis = style_guide_resp.data.get("styleGuide", {}).get("rules", {}).get("enforceTopRowKpis", False) if has_style_guide else False
 
-            pages_fixed = 0
-            for page in report.pages:
-                try:
-                    # If enforceTopRowKpis, reorder visuals so cards/KPIs come first
-                    if enforce_kpis:
-                        kpi_types = {"card", "multiRowCard", "kpi"}
-                        kpi_visuals = [v for v in page.visuals if v.visual_type in kpi_types]
-                        other_visuals = [v for v in page.visuals if v.visual_type not in kpi_types]
-                        page.visuals = kpi_visuals + other_visuals
+        # Reload report after all changes
+        self._invalidate_cache(workspace_id, report_id)
+        report = self._load_report(workspace_id, report_id)
 
-                    self.rearrange_page_visuals(workspace_id, report_id, page.name, layout_config, dry_run=False)
-                    pages_fixed += 1
-                except Exception:
-                    pass
-            executed.append({"action": "fix_layout", "success": True, "pagesFixed": pages_fixed, "enforceTopRowKpis": enforce_kpis})
+        pages_fixed = 0
+        for page in report.pages:
+            try:
+                self.rearrange_page_visuals(workspace_id, report_id, page.name, layout_config, dry_run=False)
+                pages_fixed += 1
+            except Exception:
+                pass
+        executed.append({"action": "fix_layout", "success": True, "pagesFixed": pages_fixed, "enforceTopRowKpis": enforce_kpis})
 
         # 5. Semantic model profile — returned to LLM for intelligent page/visual decisions
         #    The LLM agent uses this profile + build_page/add_visual_to_page to create pages.
