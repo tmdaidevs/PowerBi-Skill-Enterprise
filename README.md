@@ -102,33 +102,57 @@ All modes require the `https://analysis.windows.net/powerbi/api/.default` scope.
 
 The extended style guide is the core of the Enterprise Edition. It defines every aspect of how reports look — colors, fonts, layout zones, and per-visual formatting — in a single JSON file.
 
+### Where to Find the Templates
+
+The repo ships with **two template files** in `mcp-server/examples/`:
+
+```
+mcp-server/
+└── examples/
+    ├── style_guide.example.json        ← Blank template (all sections shown, neutral defaults)
+    └── style_guide.enterprise.json     ← Full-featured example with all sections populated
+```
+
+| File | What it is | Use it when |
+|---|---|---|
+| [`style_guide.example.json`](mcp-server/examples/style_guide.example.json) | Blank template with placeholder values and all schema sections visible | Starting from scratch — copy and fill in your brand values |
+| [`style_guide.enterprise.json`](mcp-server/examples/style_guide.enterprise.json) | Complete working example with page zones, 11 visual type rules, sentiment colors, etc. | Reference for what a fully-configured guide looks like |
+
+> **Tip:** Open `style_guide.enterprise.json` side-by-side with your brand guidelines — it shows every field you can configure.
+
 ### Style Guide Overview
 
-| Section | What it controls |
-|---|---|
-| `theme` | Primary color, background, text color, data colors palette |
-| `typography` | Font family, per-element font sizes and weights (9 element types) |
-| `colors` | Multi-tier color palette, sentiment colors, divergent colors, theme advanced colors |
-| `pageStructure` | Header/footer/filter panel/body zones with pixel-precise positioning |
-| `visualTypeRules` | Per-visual formatting for 13 visual types with variant support |
-| `layout` | Spacing, padding, corner radius, dimension snapping |
-| `rules` | Max visuals per page, approved fonts, title patterns, custom visual policy |
-
-All sections are **optional** — you can use as few or as many as you need.
+| Section | What it controls | Required? |
+|---|---|---|
+| `theme` | Primary color, background, text color, data colors palette | ✅ Yes |
+| `typography` | Font family, per-element font sizes and weights (9 element types) | ✅ Yes |
+| `layout` | Spacing, padding, corner radius, dimension snapping | ✅ Yes |
+| `rules` | Max visuals per page, approved fonts, title patterns | ✅ Yes |
+| `colors` | Multi-tier color palette, sentiment colors, divergent colors | Optional |
+| `pageStructure` | Header/footer/filter panel/body zones with pixel-precise positioning | Optional |
+| `visualTypeRules` | Per-visual formatting for 13 visual types with variant support | Optional |
+| `pageOverrides` | Per-page overrides (different rules for specific pages) | Optional |
+| `categoryColors` | Dimension-value → color mapping (e.g., "Active" → green) | Optional |
 
 ### Tutorial: Creating Your Style Guide
 
-#### Step 1: Start from the template
+#### Step 1: Copy the template
 
-Copy the example and rename it:
+From the repo root:
 
 ```bash
+# Copy the blank template
 cp mcp-server/examples/style_guide.example.json my_brand_guide.json
+
+# Or start from the full enterprise example and modify it
+cp mcp-server/examples/style_guide.enterprise.json my_brand_guide.json
 ```
+
+Your file can live **anywhere** — you'll point the server at it in Step 8.
 
 #### Step 2: Set your brand colors
 
-Edit the `theme` section with your brand's primary palette:
+Open `my_brand_guide.json` and edit the `theme` section with your brand's primary palette:
 
 ```json
 {
@@ -139,6 +163,12 @@ Edit the `theme` section with your brand's primary palette:
     "dataColors": ["#0078D4", "#2B88D8", "#71AFE5", "#C7E0F4"]
   }
 }
+```
+
+- `primaryColor` — your main brand color (used for links, accents, table accent)
+- `backgroundColor` — default page background
+- `textColor` — default text color
+- `dataColors` — ordered palette for chart series (injected as a Power BI custom theme)
 ```
 
 #### Step 3: Set your typography
@@ -286,28 +316,82 @@ Set per-visual-type formatting for tables, charts, KPI cards, etc.:
 }
 ```
 
-#### Step 8: Activate it
+#### Step 8: Activate your style guide
+
+There are three ways to point the server at your style guide:
+
+**Option A: Environment variable (recommended for production)**
+
+Add to your `.env` file in `mcp-server/`:
 
 ```bash
-# Set in .env
+# .env
+PBIR_MCP_DEFAULT_STYLE_GUIDE_PATH=/absolute/path/to/my_brand_guide.json
+```
+
+Or use a relative path from where you start the server:
+
+```bash
 PBIR_MCP_DEFAULT_STYLE_GUIDE_PATH=./my_brand_guide.json
 ```
 
-Or at runtime:
+**Option B: Runtime API call (recommended for testing)**
+
+Call the MCP tool at any time to load a style guide:
+
 ```
-set_default_style_guide(style_guide)
+set_default_style_guide({...your style guide JSON...})
 ```
 
-Once activated, the style guide is automatically applied during:
-- `add_visual_to_page` / `add_page` / `build_page` — auto-apply after every creation
-- `apply_full_style` — single-pass full restyle
-- `full_modernization` — complete report migration
-- `rearrange_page_visuals` — re-enforced after layout changes
-- `restore_report_definition` — re-applied after restoring from backup
+This saves the guide to `mcp-server/examples/style_guide.default.json` and uses it for all subsequent operations.
+
+**Option C: Pass directly to each tool call**
+
+Every styling tool accepts an optional `style_guide` parameter:
+
+```
+apply_style_guide(workspace_id, report_id, style_guide={...}, dry_run=true)
+migrate_report(workspace_id, report_id, target_style_guide={...}, dry_run=true)
+```
+
+#### How it gets applied automatically
+
+Once a default style guide is set (Option A or B), it's automatically applied during:
+
+| Operation | What happens |
+|---|---|
+| `add_visual_to_page` | Style guide applied after visual is created |
+| `add_page` / `build_page` | Style guide applied after page is created |
+| `apply_full_style` | Loads default guide and applies everything in one pass |
+| `full_modernization` | Applies guide + page structure + validates compliance |
+| `migrate_report` | Full migration: extract → diff → apply → validate |
+| `rearrange_page_visuals` | Re-applies style after layout changes |
+| `restore_report_definition` | Re-applies style after restoring from backup |
+
+### Migrating an Existing Report
+
+To migrate an existing report to your style guide:
+
+```
+# Preview what will change (dry run)
+migrate_report(workspace_id, report_id, dry_run=true)
+
+# Execute the migration
+migrate_report(workspace_id, report_id, dry_run=false)
+```
+
+The migration tool automatically:
+1. Extracts the report's current styling
+2. Diffs it against your target style guide
+3. Backs up the report
+4. Applies the style guide (colors, typography, visual rules)
+5. Applies page structure (header/footer/filter zones, logos)
+6. Rearranges visuals to fix spacing
+7. Validates compliance and returns a before/after report
 
 ### Extracting a Style Guide from an Existing Report
 
-If you have an existing report and want to generate a style guide from it:
+Don't have a style guide yet? Extract one from an existing report:
 
 ```
 extract_style_guide_from_report(workspace_id, report_id)
@@ -318,6 +402,18 @@ This reverse-engineers the report's current styling into a style guide JSON, inc
 - Data colors from the theme
 - Sentiment and divergent colors
 - Per-visual formatting rules (table headers, chart axes, legend settings)
+
+The response includes `extendedFieldsExtracted` showing what was auto-detected. You'll need to manually add `pageStructure` and `categoryColors` since those can't be inferred from visuals alone.
+
+### Comparing Two Style Guides
+
+To see what differs between your current and target style guides:
+
+```
+diff_style_guides(guide_a={...current...}, guide_b={...target...})
+```
+
+Returns categorized changes: colors, typography, layout, rules, visual type rules, page structure.
 
 Review the extracted guide, add `pageStructure` and `categoryColors` manually, then use it as your default.
 
