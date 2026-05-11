@@ -1955,6 +1955,24 @@ class ReportModernizationService:
                 "summary": f"{len(page_recommendations)} new page(s) and {len(new_suggestions)} new visual(s) recommended",
             }
 
+        # Action 7b: Auto-generate dashboard pages from semantic model
+        total_measures = sum(len(t.get("measures", [])) for t in tables)
+        if total_measures >= 2:
+            auto_pages = []
+            if total_measures >= 2:
+                auto_pages.append("KPI Overview (cards + overview charts)")
+            if all(len(t.get("columns", [])) > 0 for t in tables):
+                auto_pages.append("Detail View (full data table)")
+            if total_measures >= 3:
+                auto_pages.append("Analysis & Comparison (4 chart types)")
+            plan["actions"].append({
+                "id": "generate_pages",
+                "phase": "report_design",
+                "description": f"Auto-generate {len(auto_pages)} new dashboard pages from semantic model",
+                "priority": "medium",
+                "details": auto_pages,
+            })
+
         # Action 8: Layout validation
         layout_issues = []
         for page in report.pages:
@@ -2149,7 +2167,19 @@ class ReportModernizationService:
                     pass
             executed.append({"action": "fix_layout", "success": True, "pagesFixed": pages_fixed, "enforceTopRowKpis": enforce_kpis})
 
-        # 5. Validate style compliance (final check)
+        # 5. Generate new dashboard pages from semantic model analysis
+        if tables:
+            try:
+                new_pages = self._generate_dashboard_pages(
+                    workspace_id, report_id, tables, report,
+                    style_guide_resp.data.get("styleGuide", {}) if has_style_guide else {},
+                )
+                for page_result in new_pages:
+                    executed.append(page_result)
+            except Exception as exc:
+                executed.append({"action": "generate_pages", "success": False, "error": str(exc)})
+
+        # 6. Validate style compliance (final check)
         compliance_result: dict[str, Any] = {}
         if has_style_guide:
             try:
@@ -2196,6 +2226,240 @@ class ReportModernizationService:
                 "Use powerbi-modeling-mcp to apply suggested measures and metadata",
             ],
         )
+
+    # ------------------------------------------------------------------
+    # Dashboard page generation from semantic model
+    # ------------------------------------------------------------------
+
+    def _generate_dashboard_pages(
+        self,
+        workspace_id: str,
+        report_id: str,
+        tables: list[dict[str, Any]],
+        report: ReportDefinition,
+        style_guide_payload: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Analyze the semantic model and generate new dashboard pages.
+
+        Returns a list of execution result dicts for each page created.
+        """
+        results: list[dict[str, Any]] = []
+        existing_page_names = {p.name for p in report.pages}
+        existing_display_names = {p.display_name for p in report.pages}
+
+        # Collect all measures and columns across tables
+        all_measures: list[dict[str, str]] = []
+        all_columns: list[dict[str, str]] = []
+        for table in tables:
+            for m in table.get("measures", []):
+                if not m.get("isHidden"):
+                    all_measures.append({"table": table["name"], "name": m["name"]})
+            for c in table.get("columns", []):
+                if not c.get("isHidden"):
+                    all_columns.append({"table": table["name"], "name": c["name"]})
+
+        if not all_measures and not all_columns:
+            return results
+
+        # Determine which measures/columns are already visualized
+        used_refs: set[str] = set()
+        for page in report.pages:
+            for v in page.visuals:
+                qs = v.raw.get("visual", {}).get("query", {}).get("queryState", {})
+                for bucket in qs.values():
+                    for proj in bucket.get("projections", []):
+                        used_refs.add(proj.get("queryRef", ""))
+
+        # Layout helper
+        sg_layout = style_guide_payload.get("layout", {})
+        gap = sg_layout.get("visualSpacing", 20)
+        margin = sg_layout.get("pagePadding", 20)
+        page_width = 1280
+
+        def _make_projection(table: str, field: str) -> dict:
+            return {
+                "queryRef": f"{table}.{field}",
+                "field": {"Column": {"Expression": {"SourceRef": {"Entity": table}}, "Property": field}},
+                "active": True,
+            }
+
+        def _make_measure_projection(table: str, measure: str) -> dict:
+            return {
+                "queryRef": f"{table}.{measure}",
+                "field": {"Measure": {"Expression": {"SourceRef": {"Entity": table}}, "Property": measure}},
+                "active": True,
+            }
+
+        def _make_page_name(base: str) -> str:
+            """Generate a unique page name."""
+            name = base.replace(" ", "_").replace(".", "_")[:30]
+            counter = 1
+            candidate = name
+            while candidate in existing_page_names:
+                candidate = f"{name}_{counter}"
+                counter += 1
+            existing_page_names.add(candidate)
+            return candidate
+
+        pages_to_create: list[dict[str, Any]] = []
+
+        # ── Page 1: KPI Overview ──────────────────────────────────────────
+        # Create KPI cards for all numeric measures
+        if len(all_measures) >= 2:
+            kpi_visuals: list[dict[str, Any]] = []
+            max_kpis = min(len(all_measures), 8)  # Cap at 8 KPI cards
+            cols = min(max_kpis, 4)  # Max 4 per row
+            card_w = (page_width - 2 * margin - (cols - 1) * gap) // cols
+            card_h = 120
+
+            for idx, measure in enumerate(all_measures[:max_kpis]):
+                row = idx // cols
+                col = idx % cols
+                x = margin + col * (card_w + gap)
+                y = margin + row * (card_h + gap)
+
+                kpi_visuals.append({
+                    "name": f"kpi_{measure['name'].lower().replace(' ', '_')}",
+                    "visualType": "card",
+                    "position": {"x": x, "y": y, "z": 0, "width": card_w, "height": card_h, "tabOrder": idx},
+                    "query": {"queryState": {
+                        "Values": {"projections": [_make_measure_projection(measure["table"], measure["name"])]},
+                    }},
+                })
+
+            # Add a chart below KPIs showing first measure by first column
+            chart_y = margin + ((max_kpis - 1) // cols + 1) * (card_h + gap)
+            remaining_h = 720 - chart_y - margin
+
+            if all_columns and remaining_h > 150:
+                col0 = all_columns[0]
+                m0 = all_measures[0]
+                chart_w = (page_width - 2 * margin - gap) // 2
+
+                kpi_visuals.append({
+                    "name": "overview_bar_chart",
+                    "visualType": "clusteredBarChart",
+                    "position": {"x": margin, "y": chart_y, "z": 0, "width": chart_w, "height": remaining_h, "tabOrder": max_kpis},
+                    "query": {"queryState": {
+                        "Category": {"projections": [_make_projection(col0["table"], col0["name"])]},
+                        "Y": {"projections": [_make_measure_projection(m0["table"], m0["name"])]},
+                    }},
+                })
+
+                if len(all_measures) >= 2:
+                    m1 = all_measures[1]
+                    kpi_visuals.append({
+                        "name": "overview_bar_chart_2",
+                        "visualType": "clusteredBarChart",
+                        "position": {"x": margin + chart_w + gap, "y": chart_y, "z": 0, "width": chart_w, "height": remaining_h, "tabOrder": max_kpis + 1},
+                        "query": {"queryState": {
+                            "Category": {"projections": [_make_projection(col0["table"], col0["name"])]},
+                            "Y": {"projections": [_make_measure_projection(m1["table"], m1["name"])]},
+                        }},
+                    })
+
+            display_name = "KPI Overview"
+            if display_name not in existing_display_names:
+                pages_to_create.append({
+                    "page_name": _make_page_name("kpi_overview"),
+                    "display_name": display_name,
+                    "visuals": kpi_visuals,
+                    "reason": f"Executive summary with {max_kpis} KPI cards and overview charts",
+                })
+
+        # ── Page 2: Detail Table ──────────────────────────────────────────
+        # Full table/matrix with all columns and measures for drillthrough
+        if all_columns and all_measures:
+            table_cols = all_columns[:10]  # Cap at 10 columns
+            table_measures = all_measures[:5]  # Cap at 5 measures
+
+            all_projections = (
+                [_make_projection(c["table"], c["name"]) for c in table_cols] +
+                [_make_measure_projection(m["table"], m["name"]) for m in table_measures]
+            )
+
+            detail_visuals = [{
+                "name": "detail_table",
+                "visualType": "tableEx",
+                "position": {"x": margin, "y": margin, "z": 0, "width": page_width - 2 * margin, "height": 680, "tabOrder": 0},
+                "query": {"queryState": {
+                    "Values": {"projections": all_projections},
+                }},
+            }]
+
+            display_name = "Detail View"
+            if display_name not in existing_display_names:
+                pages_to_create.append({
+                    "page_name": _make_page_name("detail_view"),
+                    "display_name": display_name,
+                    "visuals": detail_visuals,
+                    "reason": f"Data table with {len(table_cols)} columns and {len(table_measures)} measures",
+                })
+
+        # ── Page 3: Trend / Comparison ────────────────────────────────────
+        # If there are multiple measures, show them side by side as charts
+        if len(all_measures) >= 3 and all_columns:
+            col0 = all_columns[0]
+            chart_w = (page_width - 2 * margin - gap) // 2
+            chart_h = (720 - 2 * margin - gap) // 2
+            comparison_visuals: list[dict[str, Any]] = []
+
+            positions = [
+                (margin, margin),
+                (margin + chart_w + gap, margin),
+                (margin, margin + chart_h + gap),
+                (margin + chart_w + gap, margin + chart_h + gap),
+            ]
+
+            chart_types = ["lineChart", "clusteredBarChart", "areaChart", "donutChart"]
+
+            for idx, measure in enumerate(all_measures[:4]):
+                x, y = positions[idx]
+                comparison_visuals.append({
+                    "name": f"comparison_{measure['name'].lower().replace(' ', '_')}",
+                    "visualType": chart_types[idx % len(chart_types)],
+                    "position": {"x": x, "y": y, "z": 0, "width": chart_w, "height": chart_h, "tabOrder": idx},
+                    "query": {"queryState": {
+                        "Category": {"projections": [_make_projection(col0["table"], col0["name"])]},
+                        "Y": {"projections": [_make_measure_projection(measure["table"], measure["name"])]},
+                    }},
+                })
+
+            display_name = "Analysis & Comparison"
+            if display_name not in existing_display_names:
+                pages_to_create.append({
+                    "page_name": _make_page_name("analysis"),
+                    "display_name": display_name,
+                    "visuals": comparison_visuals,
+                    "reason": f"4 chart types comparing {min(4, len(all_measures))} measures by {col0['name']}",
+                })
+
+        # ── Create all generated pages ────────────────────────────────────
+        for page_spec in pages_to_create:
+            try:
+                resp = self.build_page(
+                    workspace_id, report_id,
+                    page_name=page_spec["page_name"],
+                    display_name=page_spec["display_name"],
+                    visuals=page_spec["visuals"],
+                    dry_run=False,
+                )
+                results.append({
+                    "action": "create_page",
+                    "success": resp.success,
+                    "pageName": page_spec["display_name"],
+                    "visualCount": len(page_spec["visuals"]),
+                    "reason": page_spec["reason"],
+                })
+            except Exception as exc:
+                results.append({
+                    "action": "create_page",
+                    "success": False,
+                    "pageName": page_spec["display_name"],
+                    "error": str(exc),
+                })
+
+        return results
 
     def migrate_report(
         self,
