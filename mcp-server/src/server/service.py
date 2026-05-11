@@ -568,6 +568,11 @@ class ReportModernizationService:
         body_sizes: dict[int, int] = {}
         visual_rules: dict[str, dict[str, Any]] = {}
 
+        # Extended extraction counters
+        font_families: dict[str, int] = {}
+        element_fonts: dict[str, dict[str, int]] = {}  # element_key -> {size: count}
+        visual_type_rules: dict[str, dict[str, Any]] = {}
+
         def bump(counter: dict[Any, int], value: Any) -> None:
             if value is None:
                 return
@@ -593,16 +598,107 @@ class ReportModernizationService:
                     if candidate:
                         visual_rules.setdefault(visual.visual_type, {}).update(candidate)
 
+                # Extended: extract font families from objects
+                objects = visual.objects if isinstance(visual.objects, dict) else {}
+                for obj_key, obj_val in objects.items():
+                    if isinstance(obj_val, dict):
+                        ff = obj_val.get("fontFamily")
+                        if ff:
+                            bump(font_families, ff)
+
+                # Extended: extract per-element font specs from objects
+                element_obj_map = {
+                    "title": "visualTitle",
+                    "columnHeaders": "tableHeaders",
+                    "total": "tableTotals",
+                    "labels": "kpiValues",
+                    "categoryAxis": "axisLabels",
+                    "valueAxis": "axisLabels",
+                }
+                for obj_key, element_key in element_obj_map.items():
+                    obj_val = objects.get(obj_key, {})
+                    if isinstance(obj_val, dict):
+                        fs = obj_val.get("fontSize") or obj_val.get("labelFontSize")
+                        if fs:
+                            element_fonts.setdefault(element_key, {})
+                            bump(element_fonts[element_key], fs)
+
+                # Extended: extract deep visual type rules from objects
+                if include_visual_rules and objects:
+                    vtype = visual.visual_type
+                    if vtype not in visual_type_rules:
+                        visual_type_rules[vtype] = {}
+
+                    for obj_key in ("columnHeaders", "values", "total"):
+                        obj_val = objects.get(obj_key, {})
+                        if isinstance(obj_val, dict) and any(k in obj_val for k in ("fontSize", "fontColor", "backColor", "fontWeight")):
+                            element_style: dict[str, Any] = {}
+                            if "fontSize" in obj_val:
+                                element_style["fontSize"] = obj_val["fontSize"]
+                            if "fontWeight" in obj_val:
+                                element_style["fontWeight"] = obj_val["fontWeight"]
+                            if "fontColor" in obj_val:
+                                element_style["fontColor"] = obj_val["fontColor"]
+                            if "backColor" in obj_val:
+                                element_style["bgColor"] = obj_val["backColor"]
+                            visual_type_rules[vtype][obj_key.replace("columnHeaders", "header")] = element_style
+
+                    for obj_key, rule_key in [("categoryAxis", "xAxis"), ("valueAxis", "yAxis")]:
+                        obj_val = objects.get(obj_key, {})
+                        if isinstance(obj_val, dict) and any(k in obj_val for k in ("labelFontSize", "labelFontColor")):
+                            element_style = {}
+                            if "labelFontSize" in obj_val:
+                                element_style["fontSize"] = obj_val["labelFontSize"]
+                            if "labelFontColor" in obj_val:
+                                element_style["fontColor"] = obj_val["labelFontColor"]
+                            visual_type_rules[vtype][rule_key] = element_style
+
+                    legend_obj = objects.get("legend", {})
+                    if isinstance(legend_obj, dict) and any(k in legend_obj for k in ("fontSize", "position", "labelColor")):
+                        legend_style: dict[str, Any] = {}
+                        if "fontSize" in legend_obj:
+                            legend_style["fontSize"] = legend_obj["fontSize"]
+                        if "position" in legend_obj:
+                            legend_style["position"] = legend_obj["position"]
+                        if "labelColor" in legend_obj:
+                            legend_style["fontColor"] = legend_obj["labelColor"]
+                        visual_type_rules[vtype]["legend"] = legend_style
+
         def most_common(counter: dict[Any, int], fallback: Any) -> Any:
             if not counter:
                 return fallback
             return sorted(counter.items(), key=lambda item: item[1], reverse=True)[0][0]
 
-        extracted = {
+        # Extract data colors and sentiment/divergent from theme parts
+        data_colors: list[str] = []
+        sentiment_colors: dict[str, str] | None = None
+        divergent_colors: dict[str, str] | None = None
+        for part in report.parts:
+            if isinstance(part.payload, dict) and "dataColors" in part.payload:
+                data_colors = part.payload["dataColors"]
+                if "sentimentColors" in part.payload:
+                    sc = part.payload["sentimentColors"]
+                    sentiment_colors = {
+                        "positive": sc.get("good", ""),
+                        "negative": sc.get("bad", ""),
+                        "neutral": sc.get("neutral", ""),
+                    }
+                if "divergentColors" in part.payload:
+                    dc = part.payload["divergentColors"]
+                    divergent_colors = {
+                        "max": dc.get("maximum", ""),
+                        "middle": dc.get("center", ""),
+                        "min": dc.get("minimum", ""),
+                    }
+                break
+
+        # Build extracted style guide
+        extracted: dict[str, Any] = {
             "theme": {
                 "primaryColor": report.metadata.get("theme", {}).get("primaryColor", "#0078D4"),
                 "backgroundColor": most_common(style_background, "#FFFFFF"),
                 "textColor": most_common(style_text, "#1F1F1F"),
+                "dataColors": data_colors,
             },
             "typography": {
                 "titleFontFamily": most_common(title_fonts, "Segoe UI Semibold"),
@@ -623,9 +719,34 @@ class ReportModernizationService:
             "visualRules": visual_rules if include_visual_rules else {},
         }
 
+        # Extended: add fontFamily if detected
+        detected_ff = most_common(font_families, None)
+        if detected_ff:
+            extracted["typography"]["fontFamily"] = detected_ff
+
+        # Extended: add per-element typography
+        if element_fonts:
+            elements: dict[str, dict[str, Any]] = {}
+            for element_key, size_counter in element_fonts.items():
+                elements[element_key] = {"size": most_common(size_counter, 10), "weight": "Regular"}
+            extracted["typography"]["elements"] = elements
+
+        # Extended: add colors section
+        colors_section: dict[str, Any] = {}
+        if sentiment_colors:
+            colors_section["sentiment"] = sentiment_colors
+        if divergent_colors:
+            colors_section["divergent"] = divergent_colors
+        if colors_section:
+            extracted["colors"] = colors_section
+
+        # Extended: add visual type rules
+        if include_visual_rules and visual_type_rules:
+            extracted["visualTypeRules"] = visual_type_rules
+
         return ToolResponse(
             success=True,
-            summary="Style guide extracted from report",
+            summary="Style guide extracted from report (including extended features)",
             data={
                 "workspaceId": workspace_id,
                 "reportId": report_id,
@@ -634,10 +755,18 @@ class ReportModernizationService:
                     "pageCount": len(report.pages),
                     "visualCount": sum(len(p.visuals) for p in report.pages),
                 },
+                "extendedFieldsExtracted": {
+                    "fontFamily": detected_ff is not None,
+                    "elementTypography": bool(element_fonts),
+                    "sentimentColors": sentiment_colors is not None,
+                    "divergentColors": divergent_colors is not None,
+                    "visualTypeRules": bool(visual_type_rules),
+                },
             },
             next_actions=[
                 "Review and harden extracted style guide before bulk rollout",
                 "Use apply_style_guide with dry_run=true on target reports",
+                "Add pageStructure and categoryColors manually if needed",
             ],
         )
 
