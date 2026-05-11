@@ -328,63 +328,38 @@ class StyleTransformationEngine:
                         break
 
             for visual in page.visuals:
+                # Skip decorative visuals (shapes, textboxes) — they don't need VCO styling
+                is_decorative = visual.visual_type in ("shape", "textbox", "image")
+
                 # Apply visual container objects (border radius, background, padding)
-                # These go into the raw PBIR visual.json -> visualContainerObjects
-                vco = visual.raw.setdefault("visualContainerObjects", {})
+                # Only for data visuals — NOT shapes/textboxes
+                if not is_decorative:
+                    vco = visual.raw.setdefault("visualContainerObjects", {})
 
-                def _lit(val: str) -> dict:
-                    return {"expr": {"Literal": {"Value": val}}}
+                    def _lit(val: str) -> dict:
+                        return {"expr": {"Literal": {"Value": val}}}
 
-                def _color_expr(hex_val: str) -> dict:
-                    return {"solid": {"color": {"expr": {"Literal": {"Value": f"'{hex_val}'"}}}}}
+                    def _color_expr(hex_val: str) -> dict:
+                        return {"solid": {"color": {"expr": {"Literal": {"Value": f"'{hex_val}'"}}}}}
 
-                # Corner radius via border
-                if style_guide.layout.corner_radius is not None:
-                    border_props = {}
-                    border_props["show"] = _lit("true")
-                    border_props["color"] = _color_expr("#E0E0E0")
-                    border_props["radius"] = _lit(f"{style_guide.layout.corner_radius}D")
-                    vco["border"] = [{"properties": border_props}]
-                    plan.changes.append(TransformationChange(
-                        target=f"visual:{visual.id}", path="visualContainerObjects.border.radius",
-                        old_value=None, new_value=style_guide.layout.corner_radius))
+                    # Corner radius via border (subtle, no visible border line)
+                    if style_guide.layout.corner_radius is not None and style_guide.layout.corner_radius > 0:
+                        border_props = {}
+                        border_props["show"] = _lit("false")
+                        border_props["radius"] = _lit(f"{style_guide.layout.corner_radius}D")
+                        vco["border"] = [{"properties": border_props}]
+                        plan.changes.append(TransformationChange(
+                            target=f"visual:{visual.id}", path="visualContainerObjects.border.radius",
+                            old_value=None, new_value=style_guide.layout.corner_radius))
 
-                # Visual background color
-                if style_guide.theme.background_color:
-                    bg_props = {"color": _color_expr(style_guide.theme.background_color), "transparency": _lit("0D")}
-                    vco["background"] = [{"properties": bg_props}]
-                    plan.changes.append(TransformationChange(
-                        target=f"visual:{visual.id}", path="visualContainerObjects.background.color",
-                        old_value=None, new_value=style_guide.theme.background_color))
-
-                # Inner padding (from layout.pagePadding or body.innerPadding)
-                inner_pad = style_guide.layout.page_padding
-                if style_guide.page_structure and style_guide.page_structure.body:
-                    inner_pad = style_guide.page_structure.body.inner_padding or inner_pad
-                if inner_pad and inner_pad > 0:
-                    pad_props = {
-                        "top": _lit(f"{inner_pad}D"),
-                        "bottom": _lit(f"{inner_pad}D"),
-                        "left": _lit(f"{inner_pad}D"),
-                        "right": _lit(f"{inner_pad}D"),
-                    }
-                    vco["padding"] = [{"properties": pad_props}]
-
-                # Also update the raw payload in report.parts so changes persist
-                for part in mutable.parts if not dry_run else []:
-                    if not part.path.endswith("/visual.json") or not isinstance(part.payload, dict):
-                        continue
-                    if part.payload.get("name") == (visual.name or visual.id):
-                        part.payload.setdefault("visual", {})
-                        part.payload["visual"]["visualContainerObjects"] = vco
-                        break
-
-                # Legacy: also set style dict for backward compat
-                visual.properties.setdefault("style", {})
-                style = visual.properties["style"]
-                style["cornerRadius"] = style_guide.layout.corner_radius
-                style["backgroundColor"] = style_guide.theme.background_color
-                style["textColor"] = style_guide.theme.text_color
+                    # Also update the raw payload in report.parts so changes persist
+                    for part in mutable.parts if not dry_run else []:
+                        if not part.path.endswith("/visual.json") or not isinstance(part.payload, dict):
+                            continue
+                        if part.payload.get("name") == (visual.name or visual.id):
+                            part.payload.setdefault("visual", {})
+                            part.payload["visual"]["visualContainerObjects"] = vco
+                            break
 
                 type_rules = style_guide.visual_rules.get(visual.visual_type, {})
                 for rule_key, rule_value in type_rules.items():
@@ -398,11 +373,12 @@ class StyleTransformationEngine:
                             )
                         )
                         continue
+                    visual.properties.setdefault("style", {})
                     self._apply_if_changed(
                         plan,
                         target=f"visual:{visual.id}",
                         path=f"style.{rule_key}",
-                        container=style,
+                        container=visual.properties["style"],
                         key=rule_key,
                         new_value=rule_value,
                     )

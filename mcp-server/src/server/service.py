@@ -2055,6 +2055,23 @@ class ReportModernizationService:
         except Exception as exc:
             executed.append({"action": "backup", "success": False, "error": str(exc)})
 
+        # 1b. Remove decorative visuals (shapes, textboxes used as backgrounds)
+        #     These clutter the layout and overlap data visuals.
+        report = self._load_report(workspace_id, report_id)
+        decorative_types = {"shape"}  # textboxes may have real content, only remove shapes
+        shapes_removed = 0
+        for page in report.pages:
+            for visual in page.visuals:
+                if visual.visual_type in decorative_types:
+                    try:
+                        self.remove_visual(workspace_id, report_id, page.name, visual.name or visual.id, dry_run=False)
+                        shapes_removed += 1
+                    except Exception:
+                        pass
+        if shapes_removed > 0:
+            self._invalidate_cache(workspace_id, report_id)
+            executed.append({"action": "remove_decorative", "success": True, "removed": shapes_removed})
+
         # 2. Apply style guide (colors, typography, visual type rules, theme injection)
         if has_style_guide and apply_style:
             try:
