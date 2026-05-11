@@ -8,19 +8,20 @@ A style guide is a JSON object with the following top-level sections:
 
 ```json
 {
-  "dataColors": [...],
-  "backgrounds": {...},
-  "categoryColors": {...},
-  "layoutRules": {...},
-  "typography": {...},
-  "colors": {...},
-  "pageStructure": {...},
-  "visualTypeRules": {...},
-  "rules": {...}
+  "theme": { "dataColors": [...], "backgrounds": {...} },
+  "typography": { "fontFamily": "...", "titleFontFamily": "...", "elements": [...] },
+  "layout": { "pageWidth": 1280, "pageHeight": 720, ... },
+  "rules": { "titleCase": "sentence", "maxVisualsPerPage": 10, ... },
+  "colors": { "reportPalette": {...}, "visualPalette": [...], "sentiment": {...}, ... },
+  "visualRules": { ... },
+  "visualTypeRules": { ... },
+  "pageStructure": { "header": {...}, "footer": {...}, "filterPanel": {...}, "body": {...}, "canvas": {...} },
+  "categoryColors": { ... },
+  "pageOverrides": { ... }
 }
 ```
 
-All sections are optional — the engine applies only the sections present.
+The four required sections are `theme`, `typography`, `layout`, and `rules`. All other sections are optional — the engine applies only the sections present.
 
 ---
 
@@ -235,7 +236,7 @@ Unified color management via the `StyleGuideColors` schema. Centralises all colo
 | Field | Type | Description |
 |---|---|---|
 | `reportPalette` | object | Tiered report UI colors with `primary`, `secondary`, and `tertiary` arrays. Each entry has `name` (string), `hex` (string), and optional `token` (string) and `usage` (string). |
-| `visualPalette` | array of hex strings | Ordered data colors for chart series. When present, replaces `theme.dataColors` in the injected theme. |
+| `visualPalette` | array of objects | Ordered data colors for chart series. Each entry is `{"name": "...", "hex": "#..."}`. When present, replaces `theme.dataColors` in the injected theme. |
 | `sentiment` | object | Indicator colors with `positive`, `negative`, and `neutral` hex values. Used by KPI cards, conditional formatting, and trend indicators. |
 | `divergent` | object | Gradient endpoints with `max`, `middle`, and `min` hex values. Used for divergent analysis gradients such as heat maps. |
 | `themeAdvanced` | object | Power BI theme advanced elements: `firstLevel`, `secondLevel`, `thirdLevel`, `fourthLevel`, `background`, `secondaryBackground`. Maps directly to the PBI theme JSON advanced color slots. |

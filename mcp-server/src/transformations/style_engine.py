@@ -89,6 +89,11 @@ VISUAL_TYPE_ALIASES: dict[str, list[str]] = {
     "waterfall": ["waterfallChart"],
     "donutChart": ["donutChart", "pieChart"],
     "slicer": ["slicer"],
+    "scatterChart": ["scatterChart"],
+    "treemap": ["treemap"],
+    "funnel": ["funnel"],
+    "map": ["map", "filledMap", "shapeMap"],
+    "ribbon": ["ribbonChart"],
 }
 
 # Maps VisualTypeRules fields to PBIR objects.* property paths

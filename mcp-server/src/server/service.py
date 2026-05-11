@@ -1268,6 +1268,7 @@ class ReportModernizationService:
             if not style_guide:
                 return
             self.apply_style_guide(workspace_id, report_id, style_guide, dry_run=False)
+            self._invalidate_cache(workspace_id, report_id)
         except Exception:
             pass  # Never block the primary operation
 
@@ -1301,6 +1302,19 @@ class ReportModernizationService:
         )
 
         warnings = [WarningItem(severity=w.severity, code=w.code, message=w.message, remediation=w.remediation) for w in plan.warnings]
+
+        # Persist zone/layout changes (slicer moves, canvas resize, etc.)
+        if not dry_run and plan.changes:
+            definition_parts = self._report_to_definition_parts(result_report)
+            try:
+                result = self.api_client.update_report_definition(workspace_id, report_id, definition_parts)
+                if result.get("status") == "pending" and result.get("location"):
+                    state = self.api_client.wait_for_operation(result["location"])
+                    result = {"status": state.status}
+            except FabricApiError as exc:
+                return ToolResponse(success=False, summary="Failed to persist page structure changes",
+                                    blockers=[WarningItem(severity=Severity.BLOCKER, code=exc.code.value, message=str(exc))])
+            self._invalidate_cache(workspace_id, report_id)
 
         return ToolResponse(
             success=True,
@@ -2032,10 +2046,15 @@ class ReportModernizationService:
         migration_report["steps"] = executed
         migration_report["afterStyle"] = after_style
 
+        has_failures = any(not step.get("success", True) for step in executed)
+
         return ToolResponse(
             success=True,
-            summary=f"Migration complete: {len(executed)} steps executed",
+            summary=f"Migration complete: {len(executed)} steps executed" + (" (some steps had errors)" if has_failures else ""),
             data={"dryRun": False, "migrationReport": migration_report},
+            warnings=[WarningItem(severity=Severity.WARNING, code="partial_failure",
+                                  message="Some migration steps failed — review migrationReport.steps for details")]
+            if has_failures else [],
         )
 
     def inject_custom_theme(
@@ -2169,6 +2188,7 @@ class ReportModernizationService:
         """
         # Resolve default colors from style guide
         default_negative = "#D92121"
+        default_positive = "#107C10"
         default_neutral = "#FFFFFF"
         try:
             sg_resp = self.get_default_style_guide()
@@ -2177,6 +2197,8 @@ class ReportModernizationService:
                 sentiment = sg.get("colors", {}).get("sentiment", {}) if sg.get("colors") else {}
                 if sentiment.get("negative"):
                     default_negative = sentiment["negative"]
+                if sentiment.get("positive"):
+                    default_positive = sentiment["positive"]
                 if sentiment.get("neutral"):
                     default_neutral = sentiment["neutral"]
         except Exception:
