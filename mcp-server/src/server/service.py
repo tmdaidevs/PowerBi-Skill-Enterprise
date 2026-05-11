@@ -2055,22 +2055,32 @@ class ReportModernizationService:
         except Exception as exc:
             executed.append({"action": "backup", "success": False, "error": str(exc)})
 
-        # 1b. Remove decorative visuals (shapes, textboxes used as backgrounds)
-        #     These clutter the layout and overlap data visuals.
+        # 1b. Remove decorative shapes — batch in a single API write
         report = self._load_report(workspace_id, report_id)
-        decorative_types = {"shape"}  # textboxes may have real content, only remove shapes
-        shapes_removed = 0
+        decorative_types = {"shape"}
+        shapes_to_remove: list[str] = []
         for page in report.pages:
             for visual in page.visuals:
                 if visual.visual_type in decorative_types:
-                    try:
-                        self.remove_visual(workspace_id, report_id, page.name, visual.name or visual.id, dry_run=False)
-                        shapes_removed += 1
-                    except Exception:
-                        pass
-        if shapes_removed > 0:
-            self._invalidate_cache(workspace_id, report_id)
-            executed.append({"action": "remove_decorative", "success": True, "removed": shapes_removed})
+                    shapes_to_remove.append(visual.name or visual.id)
+
+        if shapes_to_remove:
+            # Remove shape parts from the report definition in-memory, then write once
+            shape_names = set(shapes_to_remove)
+            report.parts = [
+                p for p in report.parts
+                if not (p.path.endswith("/visual.json") and isinstance(p.payload, dict) and p.payload.get("name") in shape_names)
+            ]
+            definition_parts = self._report_to_definition_parts(report)
+            try:
+                result = self.api_client.update_report_definition(workspace_id, report_id, definition_parts)
+                if result.get("status") == "pending" and result.get("location"):
+                    state = self.api_client.wait_for_operation(result["location"])
+                    result = {"status": state.status}
+                self._invalidate_cache(workspace_id, report_id)
+                executed.append({"action": "remove_decorative", "success": True, "removed": len(shapes_to_remove)})
+            except FabricApiError as exc:
+                executed.append({"action": "remove_decorative", "success": False, "error": str(exc)})
 
         # 2. Apply style guide (colors, typography, visual type rules, theme injection)
         if has_style_guide and apply_style:
