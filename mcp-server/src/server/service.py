@@ -1112,6 +1112,54 @@ class ReportModernizationService:
         except Exception:
             pass  # Never block the primary operation
 
+    def apply_page_structure(self, workspace_id: str, report_id: str, style_guide_payload: dict[str, Any] | None = None, dry_run: bool = True) -> ToolResponse:
+        """Apply zone-based page layout (header/footer/filter/body) from a style guide."""
+        from src.transformations.page_structure import PageStructureEngine
+
+        if not style_guide_payload:
+            default_resp = self.get_default_style_guide()
+            if not default_resp.success:
+                return default_resp
+            style_guide_payload = default_resp.data.get("styleGuide", {})
+
+        report = self._load_report(workspace_id, report_id)
+        guide = StyleGuide.model_validate(style_guide_payload)
+
+        if not guide.page_structure:
+            return ToolResponse(success=True, summary="No pageStructure configured in style guide — skipped",
+                                data={"skipped": True})
+
+        engine = PageStructureEngine()
+        result_report, plan = engine.apply_page_structure(report, guide, dry_run=dry_run)
+
+        warnings = [WarningItem(severity=w.severity, code=w.code, message=w.message, remediation=w.remediation) for w in plan.warnings]
+
+        return ToolResponse(
+            success=True,
+            summary=f"Page structure {'preview' if dry_run else 'applied'}: {len(plan.changes)} changes, {len(warnings)} warnings",
+            data={"dryRun": dry_run, "changeCount": len(plan.changes), "changes": [c.model_dump() for c in plan.changes[:20]]},
+            warnings=warnings,
+        )
+
+    def validate_style_compliance(self, workspace_id: str, report_id: str, style_guide_payload: dict[str, Any] | None = None) -> ToolResponse:
+        """Validate a report against the full style guide (fonts, colors, snapping, zones, titles)."""
+        if not style_guide_payload:
+            default_resp = self.get_default_style_guide()
+            if not default_resp.success:
+                return default_resp
+            style_guide_payload = default_resp.data.get("styleGuide", {})
+
+        report = self._load_report(workspace_id, report_id)
+        guide = StyleGuide.model_validate(style_guide_payload)
+
+        result = self.validator.validate_style_compliance(report, guide)
+
+        return ToolResponse(
+            success=True,
+            summary=f"Style compliance: {'PASS' if result.valid else 'FAIL'} — {len(result.issues)} issues",
+            data={"valid": result.valid, "issues": [i.model_dump() for i in result.issues]},
+        )
+
     @staticmethod
     def _build_theme_from_style_guide(style_guide: StyleGuide) -> dict[str, Any]:
         """Build a Power BI theme JSON from a StyleGuide model.
@@ -1430,6 +1478,19 @@ class ReportModernizationService:
         # Check for style guide
         style_guide_resp = self.get_default_style_guide()
         has_style_guide = style_guide_resp.success
+        style_guide_info: dict[str, Any] = {}
+        if has_style_guide:
+            sg = style_guide_resp.data.get("styleGuide", {})
+            style_guide_info = {
+                "name": sg.get("name", "unnamed"),
+                "version": sg.get("version", "unknown"),
+                "path": style_guide_resp.data.get("path", ""),
+                "hasTypography": bool(sg.get("typography", {}).get("fontFamily")),
+                "hasColors": bool(sg.get("colors")),
+                "hasPageStructure": bool(sg.get("pageStructure")),
+                "hasVisualTypeRules": bool(sg.get("visualTypeRules")),
+                "dimensionSnap": sg.get("layout", {}).get("dimensionSnap"),
+            }
 
         # ── Build the modernization plan ─────────────────────────────────
         plan: dict[str, Any] = {
@@ -1453,12 +1514,32 @@ class ReportModernizationService:
 
         # Action 2: Style guide
         if has_style_guide:
+            sg_desc = f"Apply style guide '{style_guide_info.get('name', 'default')}'"
+            sg_features = []
+            if style_guide_info.get("hasTypography"):
+                sg_features.append("typography")
+            if style_guide_info.get("hasColors"):
+                sg_features.append("colors/theme")
+            if style_guide_info.get("hasVisualTypeRules"):
+                sg_features.append("visual formatting rules")
+            if sg_features:
+                sg_desc += f" ({', '.join(sg_features)})"
             plan["actions"].append({
                 "id": "apply_style",
                 "phase": "styling",
-                "description": "Apply default style guide (colors, backgrounds, typography, theme injection)",
+                "description": sg_desc,
                 "priority": "high",
+                "details": style_guide_info,
             })
+
+            # Action 2b: Page structure zones
+            if style_guide_info.get("hasPageStructure"):
+                plan["actions"].append({
+                    "id": "apply_page_structure",
+                    "phase": "styling",
+                    "description": "Enforce page structure zones (header, footer, filter panel, body bounds)",
+                    "priority": "high",
+                })
 
         # Action 3: Rename hash-named visuals
         hash_visuals = []
@@ -1563,6 +1644,15 @@ class ReportModernizationService:
                 "details": layout_issues,
             })
 
+        # Action 8: Style compliance validation (final check)
+        if has_style_guide:
+            plan["actions"].append({
+                "id": "validate_compliance",
+                "phase": "validation",
+                "description": "Validate report against style guide (fonts, colors, spacing, zones)",
+                "priority": "high",
+            })
+
         plan["totalActions"] = len(plan["actions"])
         plan["phases"] = list(set(a["phase"] for a in plan["actions"]))
 
@@ -1585,13 +1675,22 @@ class ReportModernizationService:
         except Exception as exc:
             executed.append({"action": "backup", "success": False, "error": str(exc)})
 
-        # 2. Apply style guide
+        # 2. Apply style guide (colors, typography, visual type rules, theme injection)
         if has_style_guide:
             try:
                 style_resp = self.apply_full_style(workspace_id, report_id, dry_run=False)
                 executed.append({"action": "apply_style", "success": style_resp.success, "changes": style_resp.data.get("changeCount", 0)})
             except Exception as exc:
                 executed.append({"action": "apply_style", "success": False, "error": str(exc)})
+
+        # 2b. Apply page structure zones (header/footer/filter/body)
+        if has_style_guide and style_guide_info.get("hasPageStructure"):
+            try:
+                sg_payload = style_guide_resp.data.get("styleGuide", {})
+                ps_resp = self.apply_page_structure(workspace_id, report_id, style_guide_payload=sg_payload, dry_run=False)
+                executed.append({"action": "apply_page_structure", "success": ps_resp.success, "warnings": len(ps_resp.warnings)})
+            except Exception as exc:
+                executed.append({"action": "apply_page_structure", "success": False, "error": str(exc)})
 
         # 3. Rename hash-named visuals
         renamed = 0
@@ -1617,11 +1716,27 @@ class ReportModernizationService:
                     pass
             executed.append({"action": "fix_layout", "success": True, "pagesFixed": len(report.pages)})
 
-        # 5. Log modernization
+        # 5. Validate style compliance (final check)
+        compliance_result: dict[str, Any] = {}
+        if has_style_guide:
+            try:
+                sg_payload = style_guide_resp.data.get("styleGuide", {})
+                comp_resp = self.validate_style_compliance(workspace_id, report_id, style_guide_payload=sg_payload)
+                compliance_result = {
+                    "valid": comp_resp.data.get("valid", False),
+                    "issueCount": len(comp_resp.data.get("issues", [])),
+                    "issues": comp_resp.data.get("issues", [])[:10],  # Cap at 10 for readability
+                }
+                executed.append({"action": "validate_compliance", "success": comp_resp.success, **compliance_result})
+            except Exception as exc:
+                executed.append({"action": "validate_compliance", "success": False, "error": str(exc)})
+
+        # 6. Log modernization
         self._audit_log("full_modernization", workspace_id, report_id, {
             "actionsPlanned": plan["totalActions"],
             "actionsExecuted": len(executed),
             "score_before": score_data.get("score", 0),
+            "styleGuide": style_guide_info.get("name", "none"),
         })
 
         return ToolResponse(
