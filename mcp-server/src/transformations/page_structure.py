@@ -7,6 +7,7 @@ based on a style guide's ``pageStructure`` configuration.
 from __future__ import annotations
 
 from copy import deepcopy
+from typing import Callable
 
 from src.models.schemas import (
     BodyZone,
@@ -14,6 +15,7 @@ from src.models.schemas import (
     FilterPanelZone,
     FooterZone,
     HeaderZone,
+    PageDefinition,
     PageStructure,
     ReportDefinition,
     Severity,
@@ -71,6 +73,7 @@ class PageStructureEngine:
         report: ReportDefinition,
         style_guide: StyleGuide,
         dry_run: bool = True,
+        image_creator: Callable | None = None,
     ) -> tuple[ReportDefinition, TransformationPlan]:
         """Apply zone-based layout to all pages in the report.
 
@@ -84,6 +87,11 @@ class PageStructureEngine:
             When *True* (default) the returned report is the **original**
             object – no mutations are made.  When *False* the report is
             deep-copied first and the copy is mutated.
+        image_creator:
+            Optional callback invoked when *dry_run* is *False* to create
+            image visuals for header/footer zone elements.  Signature::
+
+                image_creator(page_name, image_url, position, name)
 
         Returns
         -------
@@ -151,7 +159,12 @@ class PageStructureEngine:
                         )
                     )
 
-            # (c) Record planned image additions from header/footer ----------
+            # (c) Reposition slicers to filter panel -----------------------
+            self._reposition_slicers_to_filter_panel(
+                page, structure, plan, dry_run,
+            )
+
+            # (d) Record planned image additions from header/footer ----------
             self._record_zone_images(
                 plan, page, "header", structure.header,
             )
@@ -159,7 +172,94 @@ class PageStructureEngine:
                 plan, page, "footer", structure.footer,
             )
 
+            # (e) Create image visuals when not a dry run --------------------
+            if not dry_run and image_creator:
+                for zone_name, zone in [("header", structure.header), ("footer", structure.footer)]:
+                    if zone is None or not zone.elements:
+                        continue
+                    for element_key, placement in zone.elements.items():
+                        if placement.url:
+                            image_creator(
+                                page_name=page.name,
+                                image_url=placement.url,
+                                position={
+                                    "x": placement.x,
+                                    "y": placement.y,
+                                    "width": placement.width,
+                                    "height": placement.height,
+                                },
+                                name=placement.name or element_key,
+                            )
+
+            # (f) Navigation buttons in footer zone --------------------------
+            self._create_navigation_buttons(
+                plan, page, structure.footer, canvas,
+                dry_run=dry_run, image_creator=image_creator,
+            )
+
         return report, plan
+
+    # ------------------------------------------------------------------
+    # Slicer repositioning
+    # ------------------------------------------------------------------
+
+    def _reposition_slicers_to_filter_panel(
+        self,
+        page: PageDefinition,
+        structure: PageStructure,
+        plan: TransformationPlan,
+        dry_run: bool,
+    ) -> None:
+        """Move slicer visuals into the filter panel zone, stacked vertically."""
+        filter_panel = structure.filter_panel or FilterPanelZone(width=0)
+        if filter_panel.width == 0:
+            return
+
+        canvas = structure.canvas or CanvasSize()
+        header = structure.header or HeaderZone(height=0)
+
+        # Determine the filter panel x position
+        if filter_panel.side == "left":
+            filter_panel_x = 0
+        else:
+            filter_panel_x = canvas.width - filter_panel.width
+
+        slicers = [v for v in page.visuals if v.visual_type == "slicer"]
+        if not slicers:
+            return
+
+        current_y = header.height + filter_panel.top_padding
+        gap = 8
+
+        for slicer in slicers:
+            old_x = slicer.x or 0
+            old_y = slicer.y or 0
+            old_width = slicer.width or 0
+            slicer_height = slicer.height or 0
+
+            new_x = filter_panel_x
+            new_y = current_y
+            new_width = filter_panel.width
+
+            plan.changes.append(
+                TransformationChange(
+                    target=f"visual:{slicer.name or slicer.id}",
+                    path="position",
+                    old_value={"x": old_x, "y": old_y, "width": old_width},
+                    new_value={"x": new_x, "y": new_y, "width": new_width},
+                    risk_note=(
+                        f"Slicer '{slicer.name or slicer.id}' repositioned "
+                        f"into the filter panel zone."
+                    ),
+                )
+            )
+
+            if not dry_run:
+                slicer.x = new_x
+                slicer.y = new_y
+                slicer.width = new_width
+
+            current_y += slicer_height + gap
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -174,22 +274,98 @@ class PageStructureEngine:
     ) -> None:
         """Append ``TransformationChange`` entries for image elements in a zone."""
         if zone is None or not zone.elements:
+            pass  # fall through to check navigation_items
+        else:
+            for element_key, placement in zone.elements.items():
+                plan.changes.append(
+                    TransformationChange(
+                        target=f"page:{page.name or page.id}",
+                        path=f"{zone_name}.elements.{element_key}",
+                        old_value=None,
+                        new_value={
+                            "url": placement.url,
+                            "x": placement.x,
+                            "y": placement.y,
+                            "width": placement.width,
+                            "height": placement.height,
+                            "name": placement.name,
+                        },
+                        risk_note=f"Image element '{element_key}' will be added to the {zone_name} zone.",
+                    )
+                )
+
+        # Record planned navigation button additions for footer zones
+        if (
+            isinstance(zone, FooterZone)
+            and zone.navigation_items
+        ):
+            for idx, label in enumerate(zone.navigation_items):
+                plan.changes.append(
+                    TransformationChange(
+                        target=f"page:{page.name or page.id}",
+                        path=f"{zone_name}.navigation_items[{idx}]",
+                        old_value=None,
+                        new_value={"label": label},
+                        risk_note=f"Navigation button '{label}' will be added to the {zone_name} zone.",
+                    )
+                )
+
+    def _create_navigation_buttons(
+        self,
+        plan: TransformationPlan,
+        page,
+        footer: FooterZone | None,
+        canvas: CanvasSize,
+        *,
+        dry_run: bool = True,
+        image_creator: Callable | None = None,
+    ) -> None:
+        """Create evenly-spaced text-box visuals for footer navigation items.
+
+        When *dry_run* is *False* and *image_creator* is provided, a visual is
+        created for each navigation label.  The buttons are laid out
+        horizontally starting after the footer logo with a small offset.
+        """
+        if footer is None or not footer.navigation_items:
             return
 
-        for element_key, placement in zone.elements.items():
+        nav_items = footer.navigation_items
+
+        # Determine the width consumed by the footer logo (if any)
+        logo_width = 0
+        if footer.elements:
+            for placement in footer.elements.values():
+                logo_width = max(logo_width, placement.x + placement.width)
+
+        start_x = logo_width + 48  # offset past the logo
+        available_width = canvas.width - start_x - 128
+        button_width = max(int(available_width / len(nav_items)), 1)
+        footer_y = canvas.height - footer.height
+
+        for idx, label in enumerate(nav_items):
+            btn_x = start_x + idx * button_width
+            position = {
+                "x": btn_x,
+                "y": footer_y,
+                "width": button_width,
+                "height": footer.height,
+            }
+            btn_name = f"nav_btn_{idx}"
+
             plan.changes.append(
                 TransformationChange(
                     target=f"page:{page.name or page.id}",
-                    path=f"{zone_name}.elements.{element_key}",
+                    path=f"footer.nav_button.{btn_name}",
                     old_value=None,
-                    new_value={
-                        "url": placement.url,
-                        "x": placement.x,
-                        "y": placement.y,
-                        "width": placement.width,
-                        "height": placement.height,
-                        "name": placement.name,
-                    },
-                    risk_note=f"Image element '{element_key}' will be added to the {zone_name} zone.",
+                    new_value={"label": label, **position},
+                    risk_note=f"Navigation button '{label}' will be created in the footer zone.",
                 )
             )
+
+            if not dry_run and image_creator:
+                image_creator(
+                    page_name=page.name,
+                    image_url="",
+                    position=position,
+                    name=btn_name,
+                )

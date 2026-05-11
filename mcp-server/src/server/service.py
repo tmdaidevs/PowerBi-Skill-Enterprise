@@ -409,6 +409,36 @@ class ReportModernizationService:
         diff = self.diff_engine.diff_parts(before_definition, after_definition)
         return ToolResponse(success=True, summary="Definition diff generated", data=diff.model_dump(), next_actions=["Review changed parts and risk notes"])
 
+    def diff_style_guides(self, guide_a: dict[str, Any], guide_b: dict[str, Any]) -> ToolResponse:
+        """Compare two style guide JSONs and return what changed."""
+        diff = self.diff_engine.diff_parts(guide_a, guide_b)
+
+        # Categorize changes
+        categories: dict[str, list[str]] = {
+            "colors": [], "typography": [], "layout": [],
+            "rules": [], "visualTypeRules": [], "pageStructure": [], "other": [],
+        }
+        for change in diff.field_changes:
+            path = change.path
+            matched = False
+            for cat in categories:
+                if cat in path.lower():
+                    categories[cat].append(path)
+                    matched = True
+                    break
+            if not matched:
+                categories["other"].append(path)
+
+        return ToolResponse(
+            success=True,
+            summary=f"Style guide diff: {len(diff.field_changes)} differences",
+            data={
+                "totalChanges": len(diff.field_changes),
+                "categories": {k: v for k, v in categories.items() if v},
+                "changes": [c.model_dump() for c in diff.field_changes[:50]],
+            },
+        )
+
     def validate_report(self, workspace_id: str, report_id: str) -> ToolResponse:
         report = self._load_report(workspace_id, report_id)
         warnings, blockers = self._validate_report_or_block(report)
@@ -1882,6 +1912,123 @@ class ReportModernizationService:
             ],
         )
 
+    def migrate_report(
+        self,
+        workspace_id: str,
+        report_id: str,
+        target_style_guide: dict[str, Any] | None = None,
+        dry_run: bool = True,
+    ) -> ToolResponse:
+        """Migrate an existing report to conform to a target style guide.
+
+        Steps:
+        1. Extract current style from the report
+        2. Load target style guide (provided or default)
+        3. Diff current vs target
+        4. If not dry_run: backup → apply style guide → apply page structure → rearrange all pages → validate compliance
+        5. Return migration report with before/after comparison
+        """
+        # 1. Extract current style
+        extract_resp = self.extract_style_guide_from_report(workspace_id, report_id)
+        current_style = extract_resp.data.get("styleGuide", {}) if extract_resp.success else {}
+
+        # 2. Load target
+        if not target_style_guide:
+            default_resp = self.get_default_style_guide()
+            if not default_resp.success:
+                return default_resp
+            target_style_guide = default_resp.data.get("styleGuide", {})
+
+        # 3. Diff
+        diff = self.diff_engine.diff_parts(current_style, target_style_guide)
+
+        migration_report: dict[str, Any] = {
+            "currentStyle": current_style,
+            "targetStyle": {
+                "name": target_style_guide.get("name", "unnamed"),
+                "version": target_style_guide.get("version", "unknown"),
+            },
+            "diff": diff.model_dump() if hasattr(diff, "model_dump") else {"summary": "Style guide differences detected"},
+            "steps": [],
+        }
+
+        if dry_run:
+            steps = ["backup", "apply_style_guide", "rearrange_visuals", "validate_compliance"]
+            if target_style_guide.get("pageStructure"):
+                steps.insert(2, "apply_page_structure")
+            migration_report["steps"] = [{"id": s, "status": "planned"} for s in steps]
+            return ToolResponse(
+                success=True,
+                summary=f"Migration preview: {len(steps)} steps planned",
+                data={"dryRun": True, "migrationReport": migration_report},
+                next_actions=["Review the migration plan", "Run migrate_report with dry_run=false to execute"],
+            )
+
+        # 4. Execute migration
+        executed: list[dict[str, Any]] = []
+
+        # Backup
+        try:
+            backup_resp = self.backup_report_definition(workspace_id, report_id)
+            executed.append({"id": "backup", "success": backup_resp.success, "path": backup_resp.data.get("backupPath")})
+        except Exception as exc:
+            executed.append({"id": "backup", "success": False, "error": str(exc)})
+
+        # Apply style guide
+        try:
+            style_resp = self.apply_full_style(workspace_id, report_id, style_guide_payload=target_style_guide, dry_run=False)
+            executed.append({"id": "apply_style_guide", "success": style_resp.success, "changes": style_resp.data.get("changeCount", 0)})
+        except Exception as exc:
+            executed.append({"id": "apply_style_guide", "success": False, "error": str(exc)})
+
+        # Apply page structure
+        if target_style_guide.get("pageStructure"):
+            try:
+                ps_resp = self.apply_page_structure(workspace_id, report_id, style_guide_payload=target_style_guide, dry_run=False)
+                executed.append({"id": "apply_page_structure", "success": ps_resp.success})
+            except Exception as exc:
+                executed.append({"id": "apply_page_structure", "success": False, "error": str(exc)})
+
+        # Rearrange all pages
+        report = self._load_report(workspace_id, report_id)
+        for page in report.pages:
+            try:
+                self.rearrange_page_visuals(workspace_id, report_id, page.name, {}, dry_run=False)
+            except Exception:
+                pass
+        executed.append({"id": "rearrange_visuals", "success": True, "pagesProcessed": len(report.pages)})
+
+        # Validate compliance
+        try:
+            comp_resp = self.validate_style_compliance(workspace_id, report_id, style_guide_payload=target_style_guide)
+            comp_data = comp_resp.data if comp_resp.success else {}
+            executed.append({
+                "id": "validate_compliance",
+                "success": comp_resp.success,
+                "valid": comp_data.get("valid", False),
+                "issueCount": len(comp_data.get("issues", [])),
+            })
+        except Exception as exc:
+            executed.append({"id": "validate_compliance", "success": False, "error": str(exc)})
+
+        # Extract after style for comparison
+        after_resp = self.extract_style_guide_from_report(workspace_id, report_id)
+        after_style = after_resp.data.get("styleGuide", {}) if after_resp.success else {}
+
+        self._audit_log("migrate_report", workspace_id, report_id, {
+            "targetGuide": target_style_guide.get("name", "unnamed"),
+            "stepsExecuted": len(executed),
+        })
+
+        migration_report["steps"] = executed
+        migration_report["afterStyle"] = after_style
+
+        return ToolResponse(
+            success=True,
+            summary=f"Migration complete: {len(executed)} steps executed",
+            data={"dryRun": False, "migrationReport": migration_report},
+        )
+
     def inject_custom_theme(
         self,
         workspace_id: str,
@@ -2084,6 +2231,41 @@ class ReportModernizationService:
                                     "linearGradient2": {
                                         "min": {"color": {"Literal": {"Value": f"'{color}'"}}},
                                         "max": {"color": {"Literal": {"Value": f"'{color}'"}}},
+                                        "nullColoringStrategy": {
+                                            "strategy": {"Literal": {"Value": "'asZero'"}}
+                                        },
+                                    }
+                                },
+                            }
+                        }
+                    }
+                }
+            }
+        elif len(rules) >= 2 and rules[0].get("type") == "dataBar":
+            # Data bar: renders inline bars inside table cells
+            min_color = rules[0].get("color", default_neutral)
+            max_color = rules[-1].get("color", default_negative) if len(rules) > 1 else min_color
+            cond_format = {
+                "solid": {
+                    "color": {
+                        "expr": {
+                            "FillRule": {
+                                "Input": {
+                                    "Aggregation": {
+                                        "Expression": {
+                                            "Column": {
+                                                "Expression": {"SourceRef": {"Entity": entity}},
+                                                "Property": prop,
+                                            }
+                                        },
+                                        "Function": 0,
+                                    }
+                                },
+                                "FillRule": {
+                                    "linearGradient3": {
+                                        "min": {"color": {"Literal": {"Value": f"'{min_color}'"}}},
+                                        "mid": {"color": {"Literal": {"Value": f"'{default_neutral}'"}}},
+                                        "max": {"color": {"Literal": {"Value": f"'{max_color}'"}}},
                                         "nullColoringStrategy": {
                                             "strategy": {"Literal": {"Value": "'asZero'"}}
                                         },

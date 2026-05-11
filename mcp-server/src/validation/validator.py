@@ -14,6 +14,31 @@ from src.models.schemas import (
 from src.transformations.page_structure import PageStructureEngine
 
 
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    """Convert hex color to RGB tuple."""
+    hex_color = hex_color.lstrip("#")
+    if len(hex_color) == 3:
+        hex_color = "".join(c * 2 for c in hex_color)
+    return int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
+
+
+def _relative_luminance(r: int, g: int, b: int) -> float:
+    """Calculate relative luminance per WCAG 2.0."""
+    def _linearize(c: int) -> float:
+        s = c / 255.0
+        return s / 12.92 if s <= 0.03928 else ((s + 0.055) / 1.055) ** 2.4
+    return 0.2126 * _linearize(r) + 0.7152 * _linearize(g) + 0.0722 * _linearize(b)
+
+
+def _contrast_ratio(color1: str, color2: str) -> float:
+    """Calculate WCAG contrast ratio between two hex colors."""
+    l1 = _relative_luminance(*_hex_to_rgb(color1))
+    l2 = _relative_luminance(*_hex_to_rgb(color2))
+    lighter = max(l1, l2)
+    darker = min(l1, l2)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
 class ReportValidator:
 
     # ------------------------------------------------------------------
@@ -182,6 +207,9 @@ class ReportValidator:
 
         # Title consistency
         issues.extend(self._check_title_consistency(report, style_guide))
+
+        # Accessibility
+        issues.extend(self._check_accessibility(report, style_guide))
 
         valid = not any(i.severity == Severity.BLOCKER for i in issues)
         return ValidationResult(valid=valid, issues=issues)
@@ -375,4 +403,87 @@ class ReportValidator:
                             remediation="Rename visual to match the naming convention.",
                         )
                     )
+        return issues
+
+    # ------------------------------------------------------------------
+    # Accessibility (WCAG AA contrast)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _check_accessibility(
+        report: ReportDefinition,
+        style_guide: StyleGuide,
+    ) -> list[WarningItem]:
+        """Check WCAG AA contrast ratios for text against backgrounds."""
+        issues: list[WarningItem] = []
+
+        # Check style guide's own color combinations
+        bg_color = style_guide.theme.background_color
+        text_color = style_guide.theme.text_color
+
+        # Check global text vs background
+        try:
+            ratio = _contrast_ratio(text_color, bg_color)
+            if ratio < 4.5:
+                issues.append(WarningItem(
+                    severity=Severity.WARNING,
+                    code="low_contrast_ratio",
+                    message=f"Text color {text_color} on background {bg_color} has contrast ratio {ratio:.1f}:1 (WCAG AA requires 4.5:1)",
+                    remediation="Increase contrast between text and background colors.",
+                ))
+        except (ValueError, IndexError):
+            pass
+
+        # Check per-visual object colors
+        for page in report.pages:
+            for visual in page.visuals:
+                objects = visual.objects if isinstance(visual.objects, dict) else {}
+                for obj_key, obj_val in objects.items():
+                    if not isinstance(obj_val, dict):
+                        continue
+                    font_color = obj_val.get("fontColor") or obj_val.get("labelFontColor") or obj_val.get("labelColor")
+                    back_color = obj_val.get("backColor") or obj_val.get("background")
+                    if not font_color or not back_color:
+                        continue
+                    if not (isinstance(font_color, str) and font_color.startswith("#")):
+                        continue
+                    if not (isinstance(back_color, str) and back_color.startswith("#")):
+                        continue
+                    try:
+                        ratio = _contrast_ratio(font_color, back_color)
+                        # Use 3:1 for large text (>=18pt), 4.5:1 for normal
+                        font_size = obj_val.get("fontSize") or obj_val.get("labelFontSize") or 10
+                        min_ratio = 3.0 if font_size >= 18 else 4.5
+                        if ratio < min_ratio:
+                            issues.append(WarningItem(
+                                severity=Severity.WARNING,
+                                code="low_contrast_ratio",
+                                message=f"Visual '{visual.name or visual.id}' objects.{obj_key}: {font_color} on {back_color} has contrast ratio {ratio:.1f}:1 (min {min_ratio}:1 for {font_size}pt text)",
+                                remediation="Increase contrast between text and background colors.",
+                            ))
+                    except (ValueError, IndexError):
+                        pass
+
+        # Check visualTypeRules color combinations from the style guide
+        if style_guide.visual_type_rules:
+            for vtype, rules in style_guide.visual_type_rules.items():
+                for element_name in ("header", "values", "total"):
+                    element = getattr(rules, element_name, None)
+                    if element and element.font_color and element.bg_color:
+                        bg = element.bg_color if isinstance(element.bg_color, str) else (element.bg_color[0] if element.bg_color else None)
+                        if bg:
+                            try:
+                                ratio = _contrast_ratio(element.font_color, bg)
+                                font_size = element.font_size or 10
+                                min_ratio = 3.0 if font_size >= 18 else 4.5
+                                if ratio < min_ratio:
+                                    issues.append(WarningItem(
+                                        severity=Severity.WARNING,
+                                        code="low_contrast_style_guide",
+                                        message=f"Style guide {vtype}.{element_name}: {element.font_color} on {bg} has contrast ratio {ratio:.1f}:1 (min {min_ratio}:1)",
+                                        remediation="Adjust style guide colors for accessibility compliance.",
+                                    ))
+                            except (ValueError, IndexError):
+                                pass
+
         return issues

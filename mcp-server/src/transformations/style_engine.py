@@ -89,6 +89,7 @@ VISUAL_TYPE_ALIASES: dict[str, list[str]] = {
     "decompositionTree": ["decompositionTreeVisual"],
     "waterfall": ["waterfallChart"],
     "donutChart": ["donutChart", "pieChart"],
+    "slicer": ["slicer"],
 }
 
 # Maps VisualTypeRules fields to PBIR objects.* property paths
@@ -138,6 +139,20 @@ ELEMENT_TO_PBIR_MAP: dict[str, dict[str, str]] = {
         "fontSize": "fontSize",
         "fontWeight": "fontWeight",
         "fontColor": "color",
+    },
+    "items": {
+        "object": "items",
+        "fontSize": "fontSize",
+        "fontWeight": "fontWeight",
+        "fontColor": "fontColor",
+        "bgColor": "background",
+    },
+    "slicerHeader": {
+        "object": "header",
+        "fontSize": "fontSize",
+        "fontWeight": "fontWeight",
+        "fontColor": "fontColor",
+        "bgColor": "background",
     },
 }
 
@@ -272,6 +287,23 @@ class StyleTransformationEngine:
                 key="padding",
                 new_value=style_guide.layout.page_padding,
             )
+
+            # Extended: apply page-level background from style guide
+            if style_guide.colors and style_guide.colors.report_palette:
+                primary_colors = style_guide.colors.report_palette.get("primary", [])
+                # Find the page background color (usage contains "background")
+                for color_entry in primary_colors:
+                    if color_entry.usage and "background" in color_entry.usage.lower():
+                        page.properties.setdefault("background", {})
+                        self._apply_if_changed(
+                            plan,
+                            target=f"page:{page.id}",
+                            path="background.color",
+                            container=page.properties["background"],
+                            key="color",
+                            new_value=color_entry.hex,
+                        )
+                        break
 
             for visual in page.visuals:
                 visual.properties.setdefault("style", {})
@@ -446,6 +478,8 @@ class StyleTransformationEngine:
             return visual_type in chart_types
         if obj_key == "labels":
             return visual_type in chart_types | card_types | {"gauge", "decompositionTreeVisual"}
+        if obj_key in ("items", "header"):
+            return visual_type == "slicer"
         if obj_key == "filterCard":
             return visual_type == "slicer"
         # title and subTitle apply to everything

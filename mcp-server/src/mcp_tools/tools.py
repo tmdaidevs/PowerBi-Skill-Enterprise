@@ -181,6 +181,16 @@ def validate_style_compliance(workspace_id: str, report_id: str, style_guide: di
     return service.validate_style_compliance(workspace_id, report_id, style_guide_payload=style_guide).model_dump(mode="json")
 
 
+def migrate_report(workspace_id: str, report_id: str, target_style_guide: dict[str, Any] | None = None, dry_run: bool = True) -> dict[str, Any]:
+    """Migrate an existing report to conform to a target style guide.
+
+    Extracts current styling, diffs against target, applies style guide,
+    page structure, rearranges layout, and validates compliance.
+    Returns a migration report with before/after comparison.
+    """
+    return service.migrate_report(workspace_id, report_id, target_style_guide=target_style_guide, dry_run=dry_run).model_dump(mode="json")
+
+
 def remove_visual(workspace_id: str, report_id: str, page_id_or_name: str, visual_id_or_name: str, dry_run: bool = True) -> dict[str, Any]:
     return service.remove_visual(workspace_id, report_id, page_id_or_name, visual_id_or_name, dry_run=dry_run).model_dump(mode="json")
 
@@ -211,3 +221,8 @@ def compare_reports(workspace_id: str, report_id_a: str, report_id_b: str) -> di
 
 def export_report_summary(workspace_id: str, report_id: str) -> dict[str, Any]:
     return service.export_report_summary(workspace_id, report_id).model_dump(mode="json")
+
+
+def diff_style_guides(guide_a: dict[str, Any], guide_b: dict[str, Any]) -> dict[str, Any]:
+    """Compare two style guide JSONs and return a structured diff."""
+    return service.diff_style_guides(guide_a, guide_b).model_dump(mode="json")

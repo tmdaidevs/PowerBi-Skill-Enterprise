@@ -350,6 +350,15 @@ class StyleGuideRules(BaseModel):
 # StyleGuide — top-level model with all optional extensions
 # ---------------------------------------------------------------------------
 
+class PageStyleOverride(BaseModel):
+    """Per-page overrides for style guide settings."""
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    visual_type_rules: dict[str, VisualTypeRules] | None = Field(default=None, alias="visualTypeRules")
+    body: BodyZone | None = None
+    background_color: str | None = Field(default=None, alias="backgroundColor")
+
+
 class StyleGuide(BaseModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
@@ -367,6 +376,8 @@ class StyleGuide(BaseModel):
     page_structure: PageStructure | None = Field(default=None, alias="pageStructure")
     # Extended: top-level category colors (legacy location, also in colors.categoryColors)
     category_colors: dict[str, str] | None = Field(default=None, alias="categoryColors")
+    # Extended: per-page overrides keyed by page name
+    page_overrides: dict[str, PageStyleOverride] | None = Field(default=None, alias="pageOverrides")
 
     def get_data_colors(self) -> list[str]:
         """Resolve the effective data color palette (visual palette > theme.dataColors)."""
