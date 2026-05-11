@@ -139,12 +139,17 @@ The Microsoft Power BI Modeling MCP Server provides semantic model authoring. **
 ### Full Modernization Workflow
 1. When the user asks for full modernization:
    a. **Connect** to the semantic model via `powerbi-modeling-mcp` to get the schema (tables, columns, measures, relationships)
-   b. Call `full_modernization(confirm=False, schema={tables: [...]})` passing the schema from step (a)
-   c. Present the `assessmentReport` from the plan to the user — show every action and recommendation clearly
-   d. **ASK the user to approve** before proceeding. NEVER auto-execute.
-   e. Only after explicit approval, call `full_modernization(confirm=True, schema={...})`
+   b. Call `full_modernization(confirm=false)` to get the modernization plan
+   c. Present the plan to the user clearly, including:
+      - Current report state (pages, visuals, score)
+      - All planned actions (backup, styling, rename, layout fixes, compliance)
+      - **Style guide preview** — show the style guide name, font, colors, and features
+   d. **ASK the user**: "Should I apply the style guide '[name]'?" — this is MANDATORY before proceeding
+   e. If user approves the style guide: `full_modernization(confirm=true, apply_style=true)`
+   f. If user declines the style guide: `full_modernization(confirm=true, apply_style=false)` — structural improvements only
+   g. **NEVER auto-execute without showing the plan first and getting user confirmation**
 2. If `powerbi-modeling-mcp` is not available, `full_modernization` will try to query the schema directly (may fail). Always prefer the modelling server.
-3. The tool clones both report and semantic model — original is never modified.
+3. The tool creates a backup before any changes — original is preserved.
 
 ### Style Guide
 1. **ALWAYS** load and apply the default style guide after creating visuals or pages. The `_auto_apply_style` runs automatically, but verify the result.

@@ -1629,14 +1629,20 @@ class ReportModernizationService:
         workspace_id: str,
         report_id: str,
         confirm: bool = False,
+        apply_style: bool = True,
     ) -> ToolResponse:
         """Full modernization: assess a report, generate an improvement plan, and optionally execute it.
 
         Phase 1 (confirm=False): Analyze the report and semantic model, identify all improvements,
-        return a detailed plan with proposed changes.
+        return a detailed plan with proposed changes. The plan includes a styleGuidePreview section
+        so the user can review and decide whether to apply it.
 
-        Phase 2 (confirm=True): Execute the plan — backup, apply style guide, rename visuals,
-        suggest and add missing visuals, apply conditional formatting, validate layout.
+        Phase 2 (confirm=True): Execute the plan — backup, apply style guide (if apply_style=True),
+        rename visuals, fix layout, validate compliance.
+
+        Args:
+            apply_style: Whether to apply the default style guide. Set to False to skip styling
+                         and only perform structural improvements (rename, layout, cleanup).
         """
         # ── Phase 1: Assessment ──────────────────────────────────────────
         report = self._load_report(workspace_id, report_id)
@@ -1695,7 +1701,7 @@ class ReportModernizationService:
         })
 
         # Action 2: Style guide
-        if has_style_guide:
+        if has_style_guide and apply_style:
             sg_desc = f"Apply style guide '{style_guide_info.get('name', 'default')}'"
             sg_features = []
             if style_guide_info.get("hasTypography"):
@@ -1722,6 +1728,28 @@ class ReportModernizationService:
                     "description": "Enforce page structure zones (header, footer, filter panel, body bounds)",
                     "priority": "high",
                 })
+        elif has_style_guide and not apply_style:
+            plan["actions"].append({
+                "id": "skip_style",
+                "phase": "styling",
+                "description": f"Style guide '{style_guide_info.get('name', 'default')}' available but SKIPPED (apply_style=false)",
+                "priority": "info",
+                "details": style_guide_info,
+            })
+
+        # Style guide preview for human review (always included when a guide exists)
+        if has_style_guide:
+            sg = style_guide_resp.data.get("styleGuide", {})
+            plan["styleGuidePreview"] = {
+                "name": sg.get("name", "unnamed"),
+                "version": sg.get("version", "unknown"),
+                "willApply": apply_style,
+                "fontFamily": sg.get("typography", {}).get("fontFamily"),
+                "dataColors": sg.get("theme", {}).get("dataColors", [])[:6],
+                "hasPageZones": bool(sg.get("pageStructure")),
+                "visualTypesConfigured": list(sg.get("visualTypeRules", {}).keys()) if sg.get("visualTypeRules") else [],
+                "note": "Set apply_style=false to skip style guide application" if apply_style else "Style guide not applied. Set apply_style=true to include it.",
+            }
 
         # Action 3: Rename hash-named visuals
         hash_visuals = []
@@ -1840,11 +1868,24 @@ class ReportModernizationService:
 
         # ── Phase 2: Execute (if confirmed) ──────────────────────────────
         if not confirm:
+            style_note = ""
+            if has_style_guide and apply_style:
+                style_note = f" Style guide '{style_guide_info.get('name', 'default')}' will be applied."
+            elif has_style_guide and not apply_style:
+                style_note = f" Style guide '{style_guide_info.get('name', 'default')}' available but will NOT be applied."
+
+            next_steps = ["Review the plan and style guide preview above"]
+            if has_style_guide and apply_style:
+                next_steps.append("To skip the style guide, re-run with apply_style=false")
+            elif has_style_guide and not apply_style:
+                next_steps.append("To include the style guide, re-run with apply_style=true")
+            next_steps.append("Run full_modernization with confirm=true to execute")
+
             return ToolResponse(
                 success=True,
-                summary=f"Modernization plan: {plan['totalActions']} actions across {len(plan['phases'])} phases",
+                summary=f"Modernization plan: {plan['totalActions']} actions across {len(plan['phases'])} phases.{style_note}",
                 data={"plan": plan, "confirm": False},
-                next_actions=["Review the plan", "Run full_modernization with confirm=true to execute"],
+                next_actions=next_steps,
             )
 
         # Execute the plan
@@ -1858,7 +1899,7 @@ class ReportModernizationService:
             executed.append({"action": "backup", "success": False, "error": str(exc)})
 
         # 2. Apply style guide (colors, typography, visual type rules, theme injection)
-        if has_style_guide:
+        if has_style_guide and apply_style:
             try:
                 style_resp = self.apply_full_style(workspace_id, report_id, dry_run=False)
                 executed.append({"action": "apply_style", "success": style_resp.success, "changes": style_resp.data.get("changeCount", 0)})
@@ -1866,7 +1907,7 @@ class ReportModernizationService:
                 executed.append({"action": "apply_style", "success": False, "error": str(exc)})
 
         # 2b. Apply page structure zones (header/footer/filter/body)
-        if has_style_guide and style_guide_info.get("hasPageStructure"):
+        if has_style_guide and apply_style and style_guide_info.get("hasPageStructure"):
             try:
                 sg_payload = style_guide_resp.data.get("styleGuide", {})
                 ps_resp = self.apply_page_structure(workspace_id, report_id, style_guide_payload=sg_payload, dry_run=False)
