@@ -150,6 +150,19 @@ The Microsoft Power BI Modeling MCP Server provides semantic model authoring. **
    g. **NEVER auto-execute without showing the plan first and getting user confirmation**
 2. If `powerbi-modeling-mcp` is not available, `full_modernization` will try to query the schema directly (may fail). Always prefer the modelling server.
 3. The tool creates a backup before any changes — original is preserved.
+4. **After modernization completes**, use the `semantic_model_profile` from the response to create new pages:
+   a. Review the profile: measures, dimensions, date columns, unused fields, suggested visual types
+   b. **Decide what pages to create** based on the data — this is YOUR job as the LLM agent, not hardcoded:
+      - If there are date columns → create a **Trends** page with line charts showing measures over time
+      - If there are dimensions + measures → create a **Distribution** page with bar/donut/treemap charts
+      - If there are many measures → create a **KPI Overview** page with card visuals
+      - If there are multiple tables → create pages per logical entity/domain
+      - If there are unused fields → create pages that surface that data
+      - Always create a **Detail View** page with a table/matrix for drillthrough
+   c. Use `build_page` to create each page with properly positioned visuals
+   d. Use `add_visual_to_page` to add individual visuals to existing pages
+   e. Apply the style guide to new pages after creation
+   f. **ASK the user** before creating pages: "Based on your data, I recommend creating X pages: [list]. Should I proceed?"
 
 ### Style Guide
 1. **ALWAYS** load and apply the default style guide after creating visuals or pages. The `_auto_apply_style` runs automatically, but verify the result.

@@ -1955,22 +1955,16 @@ class ReportModernizationService:
                 "summary": f"{len(page_recommendations)} new page(s) and {len(new_suggestions)} new visual(s) recommended",
             }
 
-        # Action 7b: Auto-generate dashboard pages from semantic model
+        # Action 7b: Semantic model profile for LLM-driven page creation
         total_measures = sum(len(t.get("measures", [])) for t in tables)
-        if total_measures >= 2:
-            auto_pages = []
-            if total_measures >= 2:
-                auto_pages.append("KPI Overview (cards + overview charts)")
-            if all(len(t.get("columns", [])) > 0 for t in tables):
-                auto_pages.append("Detail View (full data table)")
-            if total_measures >= 3:
-                auto_pages.append("Analysis & Comparison (4 chart types)")
+        total_columns = sum(len([c for c in t.get("columns", []) if not c.get("isHidden")]) for t in tables)
+        if total_measures >= 1 or total_columns >= 1:
             plan["actions"].append({
-                "id": "generate_pages",
+                "id": "semantic_model_profile",
                 "phase": "report_design",
-                "description": f"Auto-generate {len(auto_pages)} new dashboard pages from semantic model",
+                "description": f"Analyze semantic model ({total_measures} measures, {total_columns} columns) — profile returned for LLM-driven page/visual creation",
                 "priority": "medium",
-                "details": auto_pages,
+                "note": "After modernization, use the profile with build_page and add_visual_to_page to create new dashboard pages tailored to this data.",
             })
 
         # Action 8: Layout validation
@@ -2167,17 +2161,16 @@ class ReportModernizationService:
                     pass
             executed.append({"action": "fix_layout", "success": True, "pagesFixed": pages_fixed, "enforceTopRowKpis": enforce_kpis})
 
-        # 5. Generate new dashboard pages from semantic model analysis
-        if tables:
-            try:
-                new_pages = self._generate_dashboard_pages(
-                    workspace_id, report_id, tables, report,
-                    style_guide_resp.data.get("styleGuide", {}) if has_style_guide else {},
-                )
-                for page_result in new_pages:
-                    executed.append(page_result)
-            except Exception as exc:
-                executed.append({"action": "generate_pages", "success": False, "error": str(exc)})
+        # 5. Semantic model profile — returned to LLM for intelligent page/visual decisions
+        #    The LLM agent uses this profile + build_page/add_visual_to_page to create pages.
+        #    We do NOT hardcode page templates — the LLM decides what makes sense for this data.
+        model_profile = self._profile_semantic_model(tables, report)
+        executed.append({
+            "action": "semantic_model_profile",
+            "success": True,
+            "profile": model_profile,
+            "note": "Use this profile to decide what new pages and visuals to create via build_page and add_visual_to_page.",
+        })
 
         # 6. Validate style compliance (final check)
         compliance_result: dict[str, Any] = {}
@@ -2228,238 +2221,162 @@ class ReportModernizationService:
         )
 
     # ------------------------------------------------------------------
-    # Dashboard page generation from semantic model
+    # Semantic model profiler — provides rich data analysis for LLM-driven page creation
     # ------------------------------------------------------------------
 
-    def _generate_dashboard_pages(
+    def _profile_semantic_model(
         self,
-        workspace_id: str,
-        report_id: str,
         tables: list[dict[str, Any]],
         report: ReportDefinition,
-        style_guide_payload: dict[str, Any],
-    ) -> list[dict[str, Any]]:
-        """Analyze the semantic model and generate new dashboard pages.
+    ) -> dict[str, Any]:
+        """Analyze the semantic model and return a rich profile for LLM-driven dashboard design.
 
-        Returns a list of execution result dicts for each page created.
+        The LLM agent uses this profile to decide what pages and visuals to create
+        via ``build_page`` and ``add_visual_to_page``. The engine does NOT hardcode
+        page templates — different data produces different recommendations.
         """
-        results: list[dict[str, Any]] = []
-        existing_page_names = {p.name for p in report.pages}
-        existing_display_names = {p.display_name for p in report.pages}
+        # Collect fields by category
+        measures: list[dict[str, Any]] = []
+        dimensions: list[dict[str, Any]] = []
+        date_columns: list[dict[str, Any]] = []
+        numeric_columns: list[dict[str, Any]] = []
+        text_columns: list[dict[str, Any]] = []
 
-        # Collect all measures and columns across tables
-        all_measures: list[dict[str, str]] = []
-        all_columns: list[dict[str, str]] = []
         for table in tables:
             for m in table.get("measures", []):
                 if not m.get("isHidden"):
-                    all_measures.append({"table": table["name"], "name": m["name"]})
+                    measures.append({
+                        "table": table["name"],
+                        "name": m["name"],
+                        "expression": m.get("expression", ""),
+                        "queryRef": f"{table['name']}.{m['name']}",
+                    })
             for c in table.get("columns", []):
-                if not c.get("isHidden"):
-                    all_columns.append({"table": table["name"], "name": c["name"]})
+                if c.get("isHidden"):
+                    continue
+                col_info = {
+                    "table": table["name"],
+                    "name": c["name"],
+                    "type": c.get("type", "column"),
+                    "queryRef": f"{table['name']}.{c['name']}",
+                }
+                # Classify column by name/type heuristics
+                name_lower = c["name"].lower()
+                col_type = c.get("dataType", "").lower() if c.get("dataType") else ""
 
-        if not all_measures and not all_columns:
-            return results
+                if any(kw in name_lower for kw in ("date", "time", "year", "month", "day", "quarter", "week")):
+                    col_info["classification"] = "date"
+                    date_columns.append(col_info)
+                elif col_type in ("int64", "double", "decimal", "currency", "int32", "single") or \
+                     any(kw in name_lower for kw in ("amount", "count", "qty", "quantity", "price", "cost", "revenue", "total", "sum", "avg")):
+                    col_info["classification"] = "numeric"
+                    numeric_columns.append(col_info)
+                else:
+                    col_info["classification"] = "dimension"
+                    dimensions.append(col_info)
+                    text_columns.append(col_info)
 
-        # Determine which measures/columns are already visualized
+        # Determine what's already visualized
         used_refs: set[str] = set()
+        existing_visual_types: set[str] = set()
+        existing_pages: list[dict[str, Any]] = []
         for page in report.pages:
+            page_info: dict[str, Any] = {
+                "name": page.display_name or page.name,
+                "visualCount": len(page.visuals),
+                "visualTypes": [],
+                "fieldsUsed": [],
+            }
             for v in page.visuals:
+                existing_visual_types.add(v.visual_type)
+                page_info["visualTypes"].append(v.visual_type)
                 qs = v.raw.get("visual", {}).get("query", {}).get("queryState", {})
                 for bucket in qs.values():
                     for proj in bucket.get("projections", []):
-                        used_refs.add(proj.get("queryRef", ""))
+                        ref = proj.get("queryRef", "")
+                        if ref:
+                            used_refs.add(ref)
+                            page_info["fieldsUsed"].append(ref)
+            existing_pages.append(page_info)
 
-        # Layout helper
-        sg_layout = style_guide_payload.get("layout", {})
-        gap = sg_layout.get("visualSpacing", 20)
-        margin = sg_layout.get("pagePadding", 20)
-        page_width = 1280
+        # Find unused fields
+        all_refs = {m["queryRef"] for m in measures} | {d["queryRef"] for d in dimensions + numeric_columns + date_columns}
+        unused_fields = sorted(all_refs - used_refs)
 
-        def _make_projection(table: str, field: str) -> dict:
-            return {
-                "queryRef": f"{table}.{field}",
-                "field": {"Column": {"Expression": {"SourceRef": {"Entity": table}}, "Property": field}},
-                "active": True,
-            }
+        # Build suggestions for the LLM
+        suggested_visual_types: list[dict[str, str]] = []
+        if date_columns and measures:
+            suggested_visual_types.append({
+                "type": "lineChart",
+                "reason": f"Time series: {date_columns[0]['name']} × measures — show trends over time",
+                "xAxis": date_columns[0]["queryRef"],
+                "yAxis": measures[0]["queryRef"],
+            })
+        if dimensions and measures:
+            suggested_visual_types.append({
+                "type": "clusteredBarChart",
+                "reason": f"Distribution: {dimensions[0]['name']} × {measures[0]['name']}",
+                "category": dimensions[0]["queryRef"],
+                "value": measures[0]["queryRef"],
+            })
+        if len(measures) >= 2 and dimensions:
+            suggested_visual_types.append({
+                "type": "scatterChart",
+                "reason": f"Correlation: {measures[0]['name']} vs {measures[1]['name']}",
+                "xAxis": measures[0]["queryRef"],
+                "yAxis": measures[1]["queryRef"],
+            })
+        if dimensions and len(dimensions) >= 1 and measures:
+            suggested_visual_types.append({
+                "type": "donutChart",
+                "reason": f"Proportion: {measures[0]['name']} by {dimensions[0]['name']}",
+                "category": dimensions[0]["queryRef"],
+                "value": measures[0]["queryRef"],
+            })
+        if measures:
+            suggested_visual_types.append({
+                "type": "card",
+                "reason": "KPI cards for key measures",
+                "measures": [m["queryRef"] for m in measures[:6]],
+            })
+        if len(measures) + len(numeric_columns) >= 3:
+            suggested_visual_types.append({
+                "type": "tableEx",
+                "reason": "Detail table for drillthrough analysis",
+                "fields": [f["queryRef"] for f in (dimensions + measures)[:12]],
+            })
 
-        def _make_measure_projection(table: str, measure: str) -> dict:
-            return {
-                "queryRef": f"{table}.{measure}",
-                "field": {"Measure": {"Expression": {"SourceRef": {"Entity": table}}, "Property": measure}},
-                "active": True,
-            }
-
-        def _make_page_name(base: str) -> str:
-            """Generate a unique page name."""
-            name = base.replace(" ", "_").replace(".", "_")[:30]
-            counter = 1
-            candidate = name
-            while candidate in existing_page_names:
-                candidate = f"{name}_{counter}"
-                counter += 1
-            existing_page_names.add(candidate)
-            return candidate
-
-        pages_to_create: list[dict[str, Any]] = []
-
-        # ── Page 1: KPI Overview ──────────────────────────────────────────
-        # Create KPI cards for all numeric measures
-        if len(all_measures) >= 2:
-            kpi_visuals: list[dict[str, Any]] = []
-            max_kpis = min(len(all_measures), 8)  # Cap at 8 KPI cards
-            cols = min(max_kpis, 4)  # Max 4 per row
-            card_w = (page_width - 2 * margin - (cols - 1) * gap) // cols
-            card_h = 120
-
-            for idx, measure in enumerate(all_measures[:max_kpis]):
-                row = idx // cols
-                col = idx % cols
-                x = margin + col * (card_w + gap)
-                y = margin + row * (card_h + gap)
-
-                kpi_visuals.append({
-                    "name": f"kpi_{measure['name'].lower().replace(' ', '_')}",
-                    "visualType": "card",
-                    "position": {"x": x, "y": y, "z": 0, "width": card_w, "height": card_h, "tabOrder": idx},
-                    "query": {"queryState": {
-                        "Values": {"projections": [_make_measure_projection(measure["table"], measure["name"])]},
-                    }},
-                })
-
-            # Add a chart below KPIs showing first measure by first column
-            chart_y = margin + ((max_kpis - 1) // cols + 1) * (card_h + gap)
-            remaining_h = 720 - chart_y - margin
-
-            if all_columns and remaining_h > 150:
-                col0 = all_columns[0]
-                m0 = all_measures[0]
-                chart_w = (page_width - 2 * margin - gap) // 2
-
-                kpi_visuals.append({
-                    "name": "overview_bar_chart",
-                    "visualType": "clusteredBarChart",
-                    "position": {"x": margin, "y": chart_y, "z": 0, "width": chart_w, "height": remaining_h, "tabOrder": max_kpis},
-                    "query": {"queryState": {
-                        "Category": {"projections": [_make_projection(col0["table"], col0["name"])]},
-                        "Y": {"projections": [_make_measure_projection(m0["table"], m0["name"])]},
-                    }},
-                })
-
-                if len(all_measures) >= 2:
-                    m1 = all_measures[1]
-                    kpi_visuals.append({
-                        "name": "overview_bar_chart_2",
-                        "visualType": "clusteredBarChart",
-                        "position": {"x": margin + chart_w + gap, "y": chart_y, "z": 0, "width": chart_w, "height": remaining_h, "tabOrder": max_kpis + 1},
-                        "query": {"queryState": {
-                            "Category": {"projections": [_make_projection(col0["table"], col0["name"])]},
-                            "Y": {"projections": [_make_measure_projection(m1["table"], m1["name"])]},
-                        }},
-                    })
-
-            display_name = "KPI Overview"
-            if display_name not in existing_display_names:
-                pages_to_create.append({
-                    "page_name": _make_page_name("kpi_overview"),
-                    "display_name": display_name,
-                    "visuals": kpi_visuals,
-                    "reason": f"Executive summary with {max_kpis} KPI cards and overview charts",
-                })
-
-        # ── Page 2: Detail Table ──────────────────────────────────────────
-        # Full table/matrix with all columns and measures for drillthrough
-        if all_columns and all_measures:
-            table_cols = all_columns[:10]  # Cap at 10 columns
-            table_measures = all_measures[:5]  # Cap at 5 measures
-
-            all_projections = (
-                [_make_projection(c["table"], c["name"]) for c in table_cols] +
-                [_make_measure_projection(m["table"], m["name"]) for m in table_measures]
-            )
-
-            detail_visuals = [{
-                "name": "detail_table",
-                "visualType": "tableEx",
-                "position": {"x": margin, "y": margin, "z": 0, "width": page_width - 2 * margin, "height": 680, "tabOrder": 0},
-                "query": {"queryState": {
-                    "Values": {"projections": all_projections},
-                }},
-            }]
-
-            display_name = "Detail View"
-            if display_name not in existing_display_names:
-                pages_to_create.append({
-                    "page_name": _make_page_name("detail_view"),
-                    "display_name": display_name,
-                    "visuals": detail_visuals,
-                    "reason": f"Data table with {len(table_cols)} columns and {len(table_measures)} measures",
-                })
-
-        # ── Page 3: Trend / Comparison ────────────────────────────────────
-        # If there are multiple measures, show them side by side as charts
-        if len(all_measures) >= 3 and all_columns:
-            col0 = all_columns[0]
-            chart_w = (page_width - 2 * margin - gap) // 2
-            chart_h = (720 - 2 * margin - gap) // 2
-            comparison_visuals: list[dict[str, Any]] = []
-
-            positions = [
-                (margin, margin),
-                (margin + chart_w + gap, margin),
-                (margin, margin + chart_h + gap),
-                (margin + chart_w + gap, margin + chart_h + gap),
-            ]
-
-            chart_types = ["lineChart", "clusteredBarChart", "areaChart", "donutChart"]
-
-            for idx, measure in enumerate(all_measures[:4]):
-                x, y = positions[idx]
-                comparison_visuals.append({
-                    "name": f"comparison_{measure['name'].lower().replace(' ', '_')}",
-                    "visualType": chart_types[idx % len(chart_types)],
-                    "position": {"x": x, "y": y, "z": 0, "width": chart_w, "height": chart_h, "tabOrder": idx},
-                    "query": {"queryState": {
-                        "Category": {"projections": [_make_projection(col0["table"], col0["name"])]},
-                        "Y": {"projections": [_make_measure_projection(measure["table"], measure["name"])]},
-                    }},
-                })
-
-            display_name = "Analysis & Comparison"
-            if display_name not in existing_display_names:
-                pages_to_create.append({
-                    "page_name": _make_page_name("analysis"),
-                    "display_name": display_name,
-                    "visuals": comparison_visuals,
-                    "reason": f"4 chart types comparing {min(4, len(all_measures))} measures by {col0['name']}",
-                })
-
-        # ── Create all generated pages ────────────────────────────────────
-        for page_spec in pages_to_create:
-            try:
-                resp = self.build_page(
-                    workspace_id, report_id,
-                    page_name=page_spec["page_name"],
-                    display_name=page_spec["display_name"],
-                    visuals=page_spec["visuals"],
-                    dry_run=False,
-                )
-                results.append({
-                    "action": "create_page",
-                    "success": resp.success,
-                    "pageName": page_spec["display_name"],
-                    "visualCount": len(page_spec["visuals"]),
-                    "reason": page_spec["reason"],
-                })
-            except Exception as exc:
-                results.append({
-                    "action": "create_page",
-                    "success": False,
-                    "pageName": page_spec["display_name"],
-                    "error": str(exc),
-                })
-
-        return results
+        return {
+            "tables": [{"name": t["name"], "columnCount": len(t.get("columns", [])), "measureCount": len(t.get("measures", []))} for t in tables],
+            "measures": measures,
+            "dimensions": dimensions,
+            "dateColumns": date_columns,
+            "numericColumns": numeric_columns,
+            "textColumns": text_columns,
+            "existingPages": existing_pages,
+            "existingVisualTypes": sorted(existing_visual_types),
+            "usedFields": sorted(used_refs),
+            "unusedFields": unused_fields,
+            "suggestedVisualTypes": suggested_visual_types,
+            "summary": {
+                "tableCount": len(tables),
+                "measureCount": len(measures),
+                "dimensionCount": len(dimensions),
+                "dateColumnCount": len(date_columns),
+                "unusedFieldCount": len(unused_fields),
+                "existingPageCount": len(report.pages),
+                "existingVisualCount": sum(len(p.visuals) for p in report.pages),
+            },
+            "instructions": (
+                "Use this profile to create new pages via build_page and add_visual_to_page. "
+                "Consider: (1) KPI overview page with card visuals for key measures, "
+                "(2) trend page with line charts if date columns exist, "
+                "(3) distribution page with bar/donut charts for dimensions × measures, "
+                "(4) detail table page for drillthrough, "
+                "(5) comparison page for multiple measures side by side. "
+                "Choose visual types and layouts that best fit THIS specific data."
+            ),
+        }
 
     def migrate_report(
         self,
