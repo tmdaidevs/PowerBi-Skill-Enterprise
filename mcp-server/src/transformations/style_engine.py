@@ -4,7 +4,6 @@ from copy import deepcopy
 from typing import Any
 
 from src.models.schemas import (
-    FontSpec,
     ReportDefinition,
     Severity,
     StyleGuide,

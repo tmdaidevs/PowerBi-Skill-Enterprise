@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 
 from src.models.schemas import (
-    PageStructure,
     ReportDefinition,
     ReportFormat,
     Severity,

@@ -53,6 +53,10 @@ mcp.tool()(tools.suggest_visuals)
 mcp.tool()(tools.auto_layout)
 mcp.tool()(tools.compare_reports)
 mcp.tool()(tools.export_report_summary)
+mcp.tool()(tools.apply_page_structure)
+mcp.tool()(tools.validate_style_compliance)
+mcp.tool()(tools.migrate_report)
+mcp.tool()(tools.diff_style_guides)
 
 
 if __name__ == "__main__":
