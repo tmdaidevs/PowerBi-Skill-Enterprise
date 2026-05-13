@@ -432,17 +432,22 @@ class StyleTransformationEngine:
         # Sync all visual model changes back to report.parts payloads
         # The engine modifies visual.objects, visual.raw, visual.x/y/w/h etc.
         # but parts still have the original payload — we must update them.
+        matched_parts: set[str] = set()
         for page in mutable.pages:
             for visual in page.visuals:
-                visual_id = visual.name or visual.id
-                # Match by path (contains visual folder name) — more reliable than payload name
-                target_suffix = f"/visuals/{visual_id}/visual.json"
+                # Try both id and name for path matching
+                id_suffix = f"/visuals/{visual.id}/visual.json"
+                name_suffix = f"/visuals/{visual.name}/visual.json" if visual.name else ""
 
                 for part in mutable.parts:
+                    if part.path in matched_parts:
+                        continue
                     if not part.path.endswith("/visual.json") or not isinstance(part.payload, dict):
                         continue
-                    # Match by path first, fall back to payload name
-                    if not (part.path.endswith(target_suffix) or part.payload.get("name") == visual_id):
+                    # Match by path (id or name) first, fall back to payload name
+                    path_match = part.path.endswith(id_suffix) or (name_suffix and part.path.endswith(name_suffix))
+                    name_match = part.payload.get("name") in (visual.name, visual.id)
+                    if not (path_match or name_match):
                         continue
 
                     # Sync position (dimension snap changes)
@@ -478,6 +483,7 @@ class StyleTransformationEngine:
                     if vco:
                         part.payload.setdefault("visual", {})["visualContainerObjects"] = vco
 
+                    matched_parts.add(part.path)
                     break
 
         return mutable, plan

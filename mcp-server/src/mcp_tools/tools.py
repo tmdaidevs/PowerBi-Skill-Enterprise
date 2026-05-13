@@ -159,7 +159,7 @@ def reorder_pages(workspace_id: str, report_id: str, page_order: list[str], dry_
     return service.reorder_pages(workspace_id, report_id, page_order, dry_run=dry_run).model_dump(mode="json")
 
 
-def full_modernization(workspace_id: str, report_id: str, confirm: bool = False, apply_style: bool = True, schema: dict[str, Any] | None = None) -> dict[str, Any]:
+def full_modernization(workspace_id: str, report_id: str, confirm: bool = False, apply_style: bool = True, schema: dict[str, Any] | None = None, steps: list[str] | None = None) -> dict[str, Any]:
     """Full report modernization with human-in-the-loop style guide confirmation.
 
     Always run with confirm=false first to preview the plan. The response includes
@@ -168,8 +168,11 @@ def full_modernization(workspace_id: str, report_id: str, confirm: bool = False,
 
     Set apply_style=false to skip style guide application and only perform
     structural improvements (rename visuals, fix layout, cleanup).
+
+    Use steps to selectively run parts: ["clone", "style", "layout", "validate"].
+    Clone and backup always run for safety.
     """
-    return service.full_modernization(workspace_id, report_id, confirm=confirm, apply_style=apply_style, schema=schema).model_dump(mode="json")
+    return service.full_modernization(workspace_id, report_id, confirm=confirm, apply_style=apply_style, schema=schema, steps=steps).model_dump(mode="json")
 
 
 def inject_custom_theme(workspace_id: str, report_id: str, theme_json: dict[str, Any], theme_name: str = "CustomTheme.json", dry_run: bool = True) -> dict[str, Any]:

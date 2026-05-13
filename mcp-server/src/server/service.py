@@ -1691,6 +1691,7 @@ class ReportModernizationService:
         confirm: bool = False,
         apply_style: bool = True,
         schema: dict[str, Any] | None = None,
+        steps: list[str] | None = None,
     ) -> ToolResponse:
         """Full modernization: assess a report, generate an improvement plan, and optionally execute it.
 
@@ -1706,7 +1707,13 @@ class ReportModernizationService:
                          and only perform structural improvements (rename, layout, cleanup).
             schema: Optional semantic model schema (tables/columns/measures). Used as fallback
                     when the API schema query fails.
+            steps: Optional list of steps to execute. Defaults to all steps.
+                   Valid values: "clone", "style", "layout", "validate".
+                   "clone" and "backup" always run for safety.
         """
+        # Resolve which steps to run
+        all_steps = {"clone", "backup", "style", "layout", "validate"}
+        active_steps = set(steps) | {"clone", "backup"} if steps else all_steps
         # ── Phase 1: Assessment ──────────────────────────────────────────
         report = self._load_report(workspace_id, report_id)
 
@@ -2128,7 +2135,7 @@ class ReportModernizationService:
                 executed.append({"action": "remove_decorative", "success": False, "error": str(exc)})
 
         # 2. Apply style guide (colors, typography, visual type rules, theme injection)
-        if has_style_guide and apply_style:
+        if has_style_guide and apply_style and "style" in active_steps:
             try:
                 style_resp = self.apply_full_style(workspace_id, report_id, dry_run=False)
                 executed.append({"action": "apply_style", "success": style_resp.success, "changes": style_resp.data.get("changeCount", 0)})
@@ -2150,7 +2157,7 @@ class ReportModernizationService:
                 executed.append({"action": "apply_style", "success": False, "error": str(exc)})
 
         # 2b. Apply page structure zones (header/footer/filter/body)
-        if has_style_guide and apply_style and style_guide_info.get("hasPageStructure"):
+        if has_style_guide and apply_style and style_guide_info.get("hasPageStructure") and "style" in active_steps:
             try:
                 sg_payload = style_guide_resp.data.get("styleGuide", {})
                 ps_resp = self.apply_page_structure(workspace_id, report_id, style_guide_payload=sg_payload, dry_run=False)
@@ -2198,38 +2205,36 @@ class ReportModernizationService:
                 executed.append({"action": "batch_write", "success": False, "error": str(exc)})
 
         # 4. Rearrange all pages — ALWAYS run after shape removal + styling
-        #    Use style guide spacing if available
-        layout_config: dict[str, Any] = {}
-        if has_style_guide:
-            sg = style_guide_resp.data.get("styleGuide", {})
-            sg_layout = sg.get("layout", {})
-            ps = sg.get("pageStructure", {})
-            body = ps.get("body", {}) if ps else {}
-            gap = body.get("interVisualGap") or sg_layout.get("visualSpacing")
-            margin = body.get("innerPadding") or sg_layout.get("pagePadding")
-            if gap:
-                layout_config["gap"] = gap
-            if margin:
-                layout_config["margin"] = margin
-            # Use page structure header height as top offset if zones are defined
-            header = ps.get("header", {})
-            if header.get("height"):
-                layout_config["margin"] = header["height"] + (margin or 16)
+        if "layout" in active_steps:
+            layout_config: dict[str, Any] = {}
+            if has_style_guide:
+                sg = style_guide_resp.data.get("styleGuide", {})
+                sg_layout = sg.get("layout", {})
+                ps = sg.get("pageStructure", {})
+                body = ps.get("body", {}) if ps else {}
+                gap = body.get("interVisualGap") or sg_layout.get("visualSpacing")
+                margin = body.get("innerPadding") or sg_layout.get("pagePadding")
+                if gap:
+                    layout_config["gap"] = gap
+                if margin:
+                    layout_config["margin"] = margin
+                header = ps.get("header", {})
+                if header.get("height"):
+                    layout_config["margin"] = header["height"] + (margin or 16)
 
-        enforce_kpis = style_guide_resp.data.get("styleGuide", {}).get("rules", {}).get("enforceTopRowKpis", False) if has_style_guide else False
+            enforce_kpis = style_guide_resp.data.get("styleGuide", {}).get("rules", {}).get("enforceTopRowKpis", False) if has_style_guide else False
 
-        # Reload report after all changes
-        self._invalidate_cache(workspace_id, report_id)
-        report = self._load_report(workspace_id, report_id)
+            self._invalidate_cache(workspace_id, report_id)
+            report = self._load_report(workspace_id, report_id)
 
-        pages_fixed = 0
-        for page in report.pages:
-            try:
-                self.rearrange_page_visuals(workspace_id, report_id, page.name, layout_config, dry_run=False)
-                pages_fixed += 1
-            except Exception:
-                pass
-        executed.append({"action": "fix_layout", "success": True, "pagesFixed": pages_fixed, "enforceTopRowKpis": enforce_kpis})
+            pages_fixed = 0
+            for page in report.pages:
+                try:
+                    self.rearrange_page_visuals(workspace_id, report_id, page.name, layout_config, dry_run=False)
+                    pages_fixed += 1
+                except Exception:
+                    pass
+            executed.append({"action": "fix_layout", "success": True, "pagesFixed": pages_fixed, "enforceTopRowKpis": enforce_kpis})
 
         # 5. Semantic model profile — returned to LLM for intelligent page/visual decisions
         #    The LLM agent uses this profile + build_page/add_visual_to_page to create pages.
@@ -2244,7 +2249,7 @@ class ReportModernizationService:
 
         # 6. Validate style compliance (final check)
         compliance_result: dict[str, Any] = {}
-        if has_style_guide:
+        if has_style_guide and "validate" in active_steps:
             try:
                 sg_payload = style_guide_resp.data.get("styleGuide", {})
                 comp_resp = self.validate_style_compliance(workspace_id, report_id, style_guide_payload=sg_payload)
