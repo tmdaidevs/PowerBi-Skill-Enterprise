@@ -434,10 +434,15 @@ class StyleTransformationEngine:
         # but parts still have the original payload — we must update them.
         for page in mutable.pages:
             for visual in page.visuals:
+                visual_id = visual.name or visual.id
+                # Match by path (contains visual folder name) — more reliable than payload name
+                target_suffix = f"/visuals/{visual_id}/visual.json"
+
                 for part in mutable.parts:
                     if not part.path.endswith("/visual.json") or not isinstance(part.payload, dict):
                         continue
-                    if part.payload.get("name") != (visual.name or visual.id):
+                    # Match by path first, fall back to payload name
+                    if not (part.path.endswith(target_suffix) or part.payload.get("name") == visual_id):
                         continue
 
                     # Sync position (dimension snap changes)

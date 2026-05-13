@@ -311,8 +311,8 @@ class ReportModernizationService:
 
         # Inject custom theme for global dataColors (controls series colors in all charts)
         theme_injected = False
+        theme_json = self._build_theme_from_style_guide(style_guide) if data_colors else {}
         if data_colors and not dry_run:
-            theme_json = self._build_theme_from_style_guide(style_guide)
             try:
                 self.inject_custom_theme(workspace_id, report_id, theme_json, dry_run=False)
                 theme_injected = True
@@ -331,6 +331,13 @@ class ReportModernizationService:
             data["categoryColorChanges"] = category_color_changes
         if background_changes:
             data["backgroundChanges"] = background_changes
+        # Always include theme preview so dry-run shows what colors will change
+        if data_colors:
+            data["themePreview"] = {
+                "dataColors": data_colors,
+                "willInjectTheme": True,
+                "themeJson": theme_json if dry_run else None,
+            }
         if theme_injected:
             data["themeInjected"] = True
             data["themeDataColors"] = data_colors
@@ -1121,20 +1128,43 @@ class ReportModernizationService:
         for row in rows:
             row.sort(key=lambda v: v.x or 0)
 
-        # Check and fix gaps
+        # Check and fix gaps — page-width-aware layout with wrapping
         gap = config.gap
         margin = config.margin
+        page_width = config.page_width
+        usable_width = page_width - 2 * margin
+
         current_y = margin
         for row in rows:
-            # Set y for all visuals in row
             row_height = max(v.height or 0 for v in row)
+
+            # Check if row fits within page width — if not, shrink visuals proportionally
+            total_row_width = sum(v.width or 0 for v in row) + (len(row) - 1) * gap
+            if total_row_width > usable_width and len(row) > 0:
+                # Shrink each visual proportionally to fit
+                scale = usable_width / total_row_width if total_row_width > 0 else 1
+                for v in row:
+                    old_w = v.width or 0
+                    new_w = int(old_w * scale)
+                    if new_w != old_w:
+                        changes.append({"visual": v.name or v.id, "field": "width", "old": old_w, "new": new_w})
+                        v.width = new_w
+                    # Also scale height proportionally
+                    old_h = v.height or 0
+                    new_h = int(old_h * scale)
+                    if new_h != old_h:
+                        changes.append({"visual": v.name or v.id, "field": "height", "old": old_h, "new": new_h})
+                        v.height = new_h
+                row_height = max(v.height or 0 for v in row)
+
+            # Set y for all visuals in row
             for v in row:
                 old_y = v.y
                 if v.y != current_y:
                     changes.append({"visual": v.name or v.id, "field": "y", "old": old_y, "new": current_y})
                     v.y = current_y
 
-            # Fix horizontal spacing
+            # Fix horizontal spacing — ensure within page bounds
             current_x = margin
             for v in row:
                 old_x = v.x
@@ -1169,8 +1199,13 @@ class ReportModernizationService:
             vname = part.payload.get("name", "")
             matching = next((v for v in visuals if (v.name or v.id) == vname), None)
             if matching and matching.x is not None:
+                part.payload.setdefault("position", {})
                 part.payload["position"]["x"] = matching.x
                 part.payload["position"]["y"] = matching.y
+                if matching.width is not None:
+                    part.payload["position"]["width"] = matching.width
+                if matching.height is not None:
+                    part.payload["position"]["height"] = matching.height
 
         # Update page height
         if page_height_change:
@@ -1655,6 +1690,7 @@ class ReportModernizationService:
         report_id: str,
         confirm: bool = False,
         apply_style: bool = True,
+        schema: dict[str, Any] | None = None,
     ) -> ToolResponse:
         """Full modernization: assess a report, generate an improvement plan, and optionally execute it.
 
@@ -1668,6 +1704,8 @@ class ReportModernizationService:
         Args:
             apply_style: Whether to apply the default style guide. Set to False to skip styling
                          and only perform structural improvements (rename, layout, cleanup).
+            schema: Optional semantic model schema (tables/columns/measures). Used as fallback
+                    when the API schema query fails.
         """
         # ── Phase 1: Assessment ──────────────────────────────────────────
         report = self._load_report(workspace_id, report_id)
@@ -1676,9 +1714,13 @@ class ReportModernizationService:
         structure = self.analyze_report_structure(workspace_id, report_id)
         score_data = structure.data.get("modernizationScore", {})
 
-        # Schema analysis
+        # Schema analysis — use provided schema as fallback
         schema_resp = self.get_semantic_model_schema(workspace_id, report_id)
-        schema = schema_resp.data if schema_resp.success else {}
+        schema = schema_resp.data if schema_resp.success else (schema or {})
+        schema_available = schema_resp.success and bool(schema.get("tables"))
+        # Fallback to provided schema if API query failed
+        if not schema_available and schema and schema.get("tables"):
+            schema_available = True
 
         # Visual suggestions
         suggestions_resp = self.suggest_visuals(workspace_id, report_id)
@@ -1716,6 +1758,9 @@ class ReportModernizationService:
             },
             "actions": [],
         }
+
+        if not schema_available:
+            plan["schemaWarning"] = "Semantic model schema unavailable — page/visual recommendations will be limited. Connect via powerbi-modeling-mcp for full analysis."
 
         # Action 0: Clone report (original is NEVER modified)
         plan["actions"].insert(0, {
@@ -2166,6 +2211,10 @@ class ReportModernizationService:
                 layout_config["gap"] = gap
             if margin:
                 layout_config["margin"] = margin
+            # Use page structure header height as top offset if zones are defined
+            header = ps.get("header", {})
+            if header.get("height"):
+                layout_config["margin"] = header["height"] + (margin or 16)
 
         enforce_kpis = style_guide_resp.data.get("styleGuide", {}).get("rules", {}).get("enforceTopRowKpis", False) if has_style_guide else False
 

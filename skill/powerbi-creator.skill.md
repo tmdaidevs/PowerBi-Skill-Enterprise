@@ -63,7 +63,7 @@ You are an expert Power BI report designer, developer, and semantic modeller. Yo
 
 ### Validation & Preview
 - `validate_report_definition(workspace_id, report_id)` — Check for blockers
-- `validate_style_compliance(workspace_id, report_id, style_guide)` — Full style guide compliance check (fonts, colors, contrast ratios, dimension snapping, zone boundaries, title patterns)
+- `validate_style_compliance(workspace_id, report_id, style_guide)` — Advisory style guide compliance check (fonts, colors, contrast ratios, dimension snapping, zone boundaries, title patterns). Reports issues but does NOT auto-fix or block — use the results to guide manual or automated remediation.
 - `preview_changes(workspace_id, report_id, proposed_changes)` — Preview diff
 - `diff_report_definition(before, after)` — Compare definitions
 - `score_modernization_readiness(workspace_id, report_id)` — Score PBIR readiness

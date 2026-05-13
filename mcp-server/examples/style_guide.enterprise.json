@@ -75,7 +75,8 @@
     "approvedFonts": [
       "Segoe UI",
       "Segoe UI Semibold"
-    ]
+    ],
+    "titlePattern": "^[A-Z].*"
   },
   "colors": {
     "reportPalette": {
@@ -422,5 +423,20 @@
     "table": {
       "alternatingRows": true
     }
+  },
+  "pageOverrides": {
+    "Executive Summary": {
+      "backgroundColor": "#F0F4F8",
+      "body": {
+        "topMargin": 120,
+        "bottomMargin": 40
+      }
+    }
+  },
+  "categoryColors": {
+    "High": "#107C10",
+    "Medium": "#FFB900",
+    "Low": "#D13438",
+    "Critical": "#A4262C"
   }
 }
